@@ -263,7 +263,7 @@ class Learner:
             index_all += index
             td_error_all += td_errors.tolist()
         
-        self.scheduler.step()
+        #self.scheduler.step()
         current_weight = self.main_q_network.to('cpu').state_dict()
         self.main_q_network.to(device)
 
