@@ -2,18 +2,16 @@ import numpy as np
 import gym
 import torch
 from model import Net
-from .Breakout import ENV
+from Breakout import ENV
 from utils import get_initial_state, input_image
 import argparse
 import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
-import torchvision      
 from tqdm import tqdm
 
 model_path = "/home/mukai/params/run_Ape-X_Breakout_2022-01-08_17-53"
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
 
 
 parser = argparse.ArgumentParser(description="Test parameter")
@@ -38,39 +36,28 @@ def decide_action(state: torch.Tensor) -> int:
     
     return output
 
-
-class Agent:
-    def __init__(self, observation: np) -> None:
-        observation = torchvision.transforms.functional.to_tensor(observation).to(device)
-        self.state = get_initial_state(observation)
-    
-    def update_state(self, observation: np) -> None:
-        observation = torchvision.transforms.functional.to_tensor(observation).to(device)
-        self.state = input_image(observation=observation, state=self.state)
-
 if __name__=="__main__":
 
-    
     plt.style.use("ggplot")
     sns.set_palette('Set2')
     warnings.filterwarnings('ignore')
-    score = []
+    score = []  
     for episode in tqdm(range(10)):
         total_reward = 0
-        observation = env.reset()
-        agent = Agent(observation)
+        state = env.reset()
+        state = get_initial_state(state)
         while True:
-            #env.render()
-            action = decide_action(agent.state)
-            observation, reward, done, info = env.step(action)
+            env.render()
+            action = decide_action(state)
+            next_state, reward, done, info = env.step(action)
             total_reward += reward
             if done:
                 score.append(total_reward)
                 break
-            
-            agent.update_state(observation)
+            else:
+                state = input_image(next_state, state)
         
-    #nv.close()
+    env.close()
     plt.figure(figsize=(10,6))
     plt.boxplot(score)
     plt.savefig("test.png")

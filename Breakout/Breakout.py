@@ -17,7 +17,7 @@ from tqdm import tqdm
 import os
 import copy
 
-ENV = 'Breakout-v4' 
+ENV = "BreakoutDeterministic-v4"
 
 Transition = namedtuple(
     'Transition', ('state', 'action', 'next_state', 'reward', 'done'))
@@ -342,7 +342,7 @@ def main(num_envs: int) -> None:
             wip_env.extend([envs[pid].rollout.remote(current_weights_ray)])
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
-            if finished_learner and actor_cycle >= 25:
+            if finished_learner and actor_cycle >= 15:
                 current_weights, index, td_error = ray.get(finished_learner[0])
                 current_weights_ray = ray.put(current_weights)
                 wip_learner = learner.update.remote(minibatch)
@@ -384,4 +384,4 @@ def main(num_envs: int) -> None:
     print("END")
     
 if __name__ == '__main__':
-    main(num_envs=36)
+    main(num_envs=20)

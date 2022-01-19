@@ -2,7 +2,7 @@ import numpy as np
 import gym
 import torch
 from model import Net
-from .Breakout import ACTION, ENV
+from Breakout import ENV
 from utils import get_initial_state, input_image
 import argparse
 import matplotlib.pyplot as plt
