@@ -38,6 +38,7 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--td_epsilon", default=0.001, type=float, help="td error epsilon")
     parser.add_argument("--interval", default=100, type=int, help="Test interval")
     parser.add_argument("--update", default=40000, type=int, help="number of update")
+    parser.add_argument("--target", default=2500, type=int, help="target q network update interval")
 
     # 結果を受ける
     args = parser.parse_args()
@@ -346,7 +347,7 @@ def main(num_envs: int) -> None:
                 current_weights, index, td_error = ray.get(finished_learner[0])
                 current_weights_ray = ray.put(current_weights)
                 wip_learner = learner.update.remote(minibatch)
-                if num_update % 100: learner.update_target_q_network.remote()
+                if num_update % args.target: learner.update_target_q_network.remote()
                 replay_memory.update_priority(index, td_error)
                 minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(16)]
                 
