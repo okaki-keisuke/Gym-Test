@@ -343,7 +343,7 @@ def main(num_envs: int) -> None:
             wip_env.extend([envs[pid].rollout.remote(current_weights_ray)])
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
-            if finished_learner and actor_cycle >= 15:
+            if finished_learner and actor_cycle >= 20:
                 current_weights, index, td_error = ray.get(finished_learner[0])
                 current_weights_ray = ray.put(current_weights)
                 wip_learner = learner.update.remote(minibatch)
