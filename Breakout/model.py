@@ -6,14 +6,13 @@ FRAME_WIDTH = 160
 FRAME_HEIGHT = 210
 INPUT_WIDTH = 84
 INPUT_HEIGHT= 84
-ACTION = 4
 STATE_LENGTH = 4
 
 class Net(nn.Module):
 
-    def __init__(self):
+    def __init__(self, action_space):
         super(Net, self).__init__()
-        self.action_space = ACTION
+        self.action_space = action_space
 
         self.conv1 = nn.Conv2d(STATE_LENGTH, 32, 8, stride=(4, 4))
         nn.init.kaiming_normal_(self.conv1.weight)
@@ -24,7 +23,7 @@ class Net(nn.Module):
         self.flatten = nn.Flatten(1, -1)
         self.fc1 = nn.Linear(64 * 7 * 7, 512)
         nn.init.kaiming_normal_(self.fc1.weight)
-        self.fc2_adv = nn.Linear(512, ACTION)
+        self.fc2_adv = nn.Linear(512, self.action_space)
         nn.init.kaiming_normal_(self.fc2_adv.weight)
         self.fc2_val = nn.Linear(512, 1)  # 価値V側
         nn.init.kaiming_normal_(self.fc2_val.weight)

@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 import datetime
 import ray
 from priority_tree import Tree
-from model import Net, ACTION
+from model import Net
 from utils import get_initial_state, input_image
 import argparse
 from tqdm import tqdm
@@ -88,7 +88,7 @@ class Environment:
         self.env_name = ENV
         self.env = gym.make(ENV)
         self.action_space = self.env.action_space.n
-        self.q_network = Net()
+        self.q_network = Net(action_space=self.action_space)
         self.epsilon = epsilon
         self.gamma = gamma
         self.advanced_step = advanced_step
@@ -158,6 +158,10 @@ class Environment:
         td_errors = td_error.cpu().detach().numpy().flatten()
 
         return td_errors, transition
+    
+    def get_action_space(self) -> int:
+        
+        return self.action_space
 
 class Experiment_Replay:
 
@@ -207,12 +211,12 @@ class Experiment_Replay:
     def __len__(self) -> int:
         return len(self.memory)
 
-@ray.remote(num_gpus=0.5)
+@ray.remote(num_cpus=1, num_gpus=1)
 class Learner:
     def __init__(self, action_space: int, batch_size: int, gamma: float, advanced_step: int, target_update: int):
         self.action_space = action_space
-        self.main_q_network = Net().to(device)
-        self.target_q_network = Net().to(device)
+        self.main_q_network = Net(self.action_space).to(device)
+        self.target_q_network = Net(self.action_space).to(device)
         #self.optimizer = optim.Adam(self.main_q_network.parameters(), lr=0.001)
         self.optimizer = optim.RMSprop(self.main_q_network.parameters(), lr=0.0025/4, alpha=0.9, momentum=0.0, eps=1.5e-07, centered=True)
         self.scheduler = lr_scheduler.StepLR(self.optimizer, 1000, gamma=0.8)
@@ -288,8 +292,8 @@ class Learner:
 @ray.remote
 class Tester:
 
-    def __init__(self):
-        self.q_network = Net()
+    def __init__(self, action_space: int):
+        self.q_network = Net(action_space)
         self.epsilon = 0.01
     
     def test_play(self, current_weights: parameter, step: int) -> list:
@@ -322,12 +326,13 @@ def main(num_envs: int) -> None:
     epsilons = [max(0.01, eps) for eps in epsilons]
     envs = [Environment.remote(pid=i, gamma=args.gamma, advanced_step=args.advanced, epsilon=epsilons[i], local_cycle=args.local_cycle) for i in range(num_envs)]
     replay_memory = Experiment_Replay(capacity=args.capacity, td_epsilon=args.td_epsilon)
-    learner = Learner.remote(action_space=ACTION, batch_size=args.batch, gamma=args.gamma, advanced_step=args.advanced, target_update=args.target_update)
+    action_space = envs[0].get_action_space.remote()
+    learner = Learner.remote(action_space=action_space, batch_size=args.batch, gamma=args.gamma, advanced_step=args.advanced, target_update=args.target_update)
     current_weights = ray.get(learner.define_network.remote())
     if args.save: torch.save(current_weights, f'{model_path}/model_step_{0:03}.pth')
     current_weights_ray = ray.put(current_weights)
-    tester = Tester.remote()
-    if args.graph: writer = SummaryWriter(log_dir="./logs/run_{}".format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")))
+    tester = Tester.remote(action_space=action_space)
+    if args.graph: writer = SummaryWriter(log_dir="./logs2/run_{}".format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")))
     num_update = 0
 
     wip_env = [env.rollout.remote(current_weights_ray) for env in envs]
