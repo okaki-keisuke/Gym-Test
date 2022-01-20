@@ -30,15 +30,19 @@ def arg_get() -> argparse.Namespace:
 
     parser.add_argument("--graph", action="store_true", help="show Graph")
     parser.add_argument("--save", action="store_true",help="save parameter")
-    parser.add_argument("--gamma", default=0.98, type=float, help="learning rate")
-    parser.add_argument("--batch", default=32, type=int, help="batch size")
-    parser.add_argument("--capacity", default=2 ** 14, type=int, help="Replay memory size (2 ** x)")
+    parser.add_argument("--gamma", default=0.99, type=float, help="learning rate")
+    parser.add_argument("--batch", default=512, type=int, help="batch size")
+    parser.add_argument("--capacity", default=2 ** 21, type=int, help="Replay memory size (2 ** x)")
     parser.add_argument("--epsilon", default=0.5, type=float, help="exploration rate")
-    parser.add_argument("--advanced", default=5, type=int, help="number of advanced step")
+    parser.add_argument("--eps_alpha", default=7, type=int, help="epsilon alpha")
+    parser.add_argument("--advanced", default=3, type=int, help="number of advanced step")
     parser.add_argument("--td_epsilon", default=0.001, type=float, help="td error epsilon")
-    parser.add_argument("--interval", default=100, type=int, help="Test interval")
-    parser.add_argument("--update", default=40000, type=int, help="number of update")
-    parser.add_argument("--target", default=2500, type=int, help="target q network update interval")
+    parser.add_argument("--interval", default=10, type=int, help="Test interval")
+    parser.add_argument("--update", default=5000, type=int, help="number of update")
+    parser.add_argument("--target_update", default=2400, type=int, help="target q network update interval")
+    parser.add_argument("--min_replay", default=50000, type=int, help="min experience replay data")
+    parser.add_argument("--local_cycle", default=100, type=int, help="number of cycle in Local Environment")
+    parser.add_argument("--num_minibatch", default=16, type=int, help="number of minibatch for 1 update")
 
     # 結果を受ける
     args = parser.parse_args()
@@ -79,7 +83,7 @@ class Agent:
 
 @ray.remote
 class Environment:
-    def __init__(self, pid: int, gamma: float, advanced_step: int, epsilon:float):
+    def __init__(self, pid: int, gamma: float, advanced_step: int, epsilon: float, local_cycle: int):
         self.pid = pid
         self.env_name = ENV
         self.env = gym.make(ENV)
@@ -92,6 +96,7 @@ class Environment:
         self.agent = Agent(advanced_step=self.advanced_step)
         self.agent.state_storage(get_initial_state(state))
         self.episode_reward = 0
+        self.local_cycle = local_cycle
     
     def rollout(self, weights: parameter) -> list:
 
@@ -100,7 +105,7 @@ class Environment:
         self.q_network.load_state_dict(weights) 
         buffer = []
 
-        for _ in range(100):
+        for _ in range(self.local_cycle):
 
             action = self.q_network.get_action(self.agent.state[-1], epsilon=self.epsilon)
             next_state, reward, done, _ = self.env.step(action)
@@ -204,15 +209,18 @@ class Experiment_Replay:
 
 @ray.remote(num_gpus=0.5)
 class Learner:
-    def __init__(self, action_space: int, batch_size: int, gamma: float, advanced_step: int):
+    def __init__(self, action_space: int, batch_size: int, gamma: float, advanced_step: int, target_update: int):
         self.action_space = action_space
         self.main_q_network = Net().to(device)
         self.target_q_network = Net().to(device)
-        self.optimizer = optim.Adam(self.main_q_network.parameters(), lr=0.001)
+        #self.optimizer = optim.Adam(self.main_q_network.parameters(), lr=0.001)
+        self.optimizer = optim.RMSprop(self.main_q_network.parameters(), lr=0.0025/4, alpha=0.9, momentum=0.0, eps=1.5e-07, centered=True)
         self.scheduler = lr_scheduler.StepLR(self.optimizer, 1000, gamma=0.8)
         self.batch_size = batch_size
         self.gamma = gamma
         self.advanced_step = advanced_step
+        self.target_update = target_update
+        self.update_count = 0
     
     def define_network(self) -> parameter:
         current_weights = self.main_q_network.to('cpu').state_dict()
@@ -258,11 +266,15 @@ class Learner:
             loss = torch.mean(weights * td_error)
             self.optimizer.zero_grad()
             loss.backward()
-            #utils.clip_grad_norm_(self.main_q_network.parameters(), max_norm=40.0, norm_type=2.0)
+            utils.clip_grad_norm_(self.main_q_network.parameters(), max_norm=40.0, norm_type=2.0)
             self.optimizer.step()
 
             index_all += index
             td_error_all += td_errors.tolist()
+            self.update_count += 1
+
+            if self.update_count % self.target_update == 0:
+                self.update_target_q_network()
         
         #self.scheduler.step()
         current_weight = self.main_q_network.to('cpu').state_dict()
@@ -305,10 +317,12 @@ def main(num_envs: int) -> None:
 
     ray.init(num_gpus=1)
     print("START")
-    epsilons = np.linspace(0.01, 0.5, num_envs)
-    envs = [Environment.remote(pid=i, gamma=args.gamma, advanced_step=args.advanced, epsilon=epsilons[i]) for i in range(num_envs)]
+    #epsilons = np.linspace(0.01, args.epsilon, num_envs)
+    epsilons = [args.epsilon ** (1 + args.eps_alpha * i / (num_envs - 1)) for i in range(num_envs)]
+    epsilons = [max(0.01, eps) for eps in epsilons]
+    envs = [Environment.remote(pid=i, gamma=args.gamma, advanced_step=args.advanced, epsilon=epsilons[i], local_cycle=args.local_cycle) for i in range(num_envs)]
     replay_memory = Experiment_Replay(capacity=args.capacity, td_epsilon=args.td_epsilon)
-    learner = Learner.remote(action_space=ACTION, batch_size=args.batch, gamma=args.gamma, advanced_step=args.advanced)
+    learner = Learner.remote(action_space=ACTION, batch_size=args.batch, gamma=args.gamma, advanced_step=args.advanced, target_update=args.target_update)
     current_weights = ray.get(learner.define_network.remote())
     if args.save: torch.save(current_weights, f'{model_path}/model_step_{0:03}.pth')
     current_weights_ray = ray.put(current_weights)
@@ -317,15 +331,15 @@ def main(num_envs: int) -> None:
     num_update = 0
 
     wip_env = [env.rollout.remote(current_weights_ray) for env in envs]
-    for _ in range(30):
+    for _ in range(args.min_replay // args.local_cycle):
         finish_env, wip_env = ray.wait(wip_env, num_returns=1)
         td_error, transition, pid = ray.get(finish_env[0])
         replay_memory.push(td_error, transition)
         wip_env.extend([envs[pid].rollout.remote(current_weights_ray)])
 
-    minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(16)]
+    minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
     wip_learner = learner.update.remote(minibatch)
-    minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(16)]
+    minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
     wip_tester = tester.test_play.remote(current_weights_ray, num_update)
     actor_cycle = 0
     sum = actor_cycle
