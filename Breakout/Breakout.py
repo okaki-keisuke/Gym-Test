@@ -23,6 +23,7 @@ Transition = namedtuple(
     'Transition', ('state', 'action', 'next_state', 'reward', 'done'))
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+torch.backends.cudnn.benchmark = True # pytorch speed up
 
 def arg_get() -> argparse.Namespace:
     
@@ -32,7 +33,7 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--save", action="store_true",help="save parameter")
     parser.add_argument("--gamma", default=0.99, type=float, help="learning rate")
     parser.add_argument("--batch", default=512, type=int, help="batch size")
-    parser.add_argument("--capacity", default=2 ** 21, type=int, help="Replay memory size (2 ** x)")
+    parser.add_argument("--capacity", default=2 ** 18, type=int, help="Replay memory size (2 ** x)")
     parser.add_argument("--epsilon", default=0.5, type=float, help="exploration rate")
     parser.add_argument("--eps_alpha", default=7, type=int, help="epsilon alpha")
     parser.add_argument("--advanced", default=3, type=int, help="number of advanced step")
@@ -268,7 +269,7 @@ class Learner:
 
             self.main_q_network.train()
             loss = torch.mean(weights * td_error)
-            self.optimizer.zero_grad()
+            self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
             utils.clip_grad_norm_(self.main_q_network.parameters(), max_norm=40.0, norm_type=2.0)
             self.optimizer.step()
@@ -336,7 +337,7 @@ def main(num_envs: int) -> None:
     num_update = 0
 
     wip_env = [env.rollout.remote(current_weights_ray) for env in envs]
-    for _ in range(args.min_replay // args.local_cycle):
+    for _ in tqdm(range(args.min_replay // args.local_cycle)):
         finish_env, wip_env = ray.wait(wip_env, num_returns=1)
         td_error, transition, pid = ray.get(finish_env[0])
         replay_memory.push(td_error, transition)
@@ -362,11 +363,10 @@ def main(num_envs: int) -> None:
             wip_env.extend([envs[pid].rollout.remote(current_weights_ray)])
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
-            if finished_learner and actor_cycle >= 20:
+            if finished_learner:
                 current_weights, index, td_error = ray.get(finished_learner[0])
                 current_weights_ray = ray.put(current_weights)
                 wip_learner = learner.update.remote(minibatch)
-                if num_update % args.target: learner.update_target_q_network.remote()
                 replay_memory.update_priority(index, td_error)
                 minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(16)]
                 
@@ -384,11 +384,9 @@ def main(num_envs: int) -> None:
                         writer.add_scalar(f"Ape-X_Breakout.png", test_score, step)
                     if args.save: torch.save(current_weights, f'{model_path}/model_step_{num_update//args.interval:03}.pth')
                     print('\n' + '-' * 80)
-                    print(f"Test End : {num_update//args.interval} | Number of Updates : {num_update} | Test Score : {test_score}")
-                    print('-' * 80)
+                    print(f"Test End : {num_update//args.interval - 1} | Number of Updates : {num_update} | Test Score : {test_score}")
                     #Test End↑　Test Start↓
                     wip_tester = tester.test_play.remote(current_weights_ray, num_update)
-                    print('\n' + '-'*80)
                     print(f"Test Start : {num_update//args.interval} | Number of Updates : {num_update} | Number of Push : {sum}")
                     print('-'*80)
     
