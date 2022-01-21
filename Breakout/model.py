@@ -1,6 +1,7 @@
 from torch import nn
 import random
 import numpy as np
+import torch
 
 FRAME_WIDTH = 160
 FRAME_HEIGHT = 210
@@ -46,7 +47,7 @@ class Net(nn.Module):
 
         return output
 
-
+    @torch.no_grad()
     def get_action(self, state, epsilon):
         
         self.eval()

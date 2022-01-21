@@ -11,7 +11,7 @@ import datetime
 import ray
 from priority_tree import Tree
 from model import Net
-from utils import get_initial_state, input_image
+from utils import initial_state, input_state
 import argparse
 from tqdm import tqdm
 import os
@@ -95,7 +95,7 @@ class Environment:
         self.advanced_step = advanced_step
         state = self.env.reset()
         self.agent = Agent(advanced_step=self.advanced_step)
-        self.agent.state_storage(get_initial_state(state))
+        self.agent.state_storage(initial_state(state))
         self.episode_reward = 0
         self.local_cycle = local_cycle
     
@@ -110,7 +110,7 @@ class Environment:
 
             action = self.q_network.get_action(self.agent.state[-1], epsilon=self.epsilon)
             next_state, reward, done, _ = self.env.step(action)
-            self.agent.state_storage(input_image(next_state, self.agent.state[-1]))
+            self.agent.state_storage(input_state(next_state, self.agent.state[-1]))
             self.episode_reward += reward
             self.agent.reward_storage(reward)
             if self.agent.data_full():
@@ -124,17 +124,16 @@ class Environment:
             if done:
                self.agent.reset()
                state = self.env.reset()
-               self.agent.state_storage(get_initial_state(state))
+               self.agent.state_storage(initial_state(state))
                self.episode_reward = 0
                 
         td_error , transitions = self.init_prior(buffer)
-        #print("End:{}-Environment".format(self.pid))
 
         return td_error, transitions, self.pid
     
     def init_prior(self, transition: list) -> list:
 
-        self.q_network.eval()
+        qnet_script = torch.jit.script(self.q_network.eval())
         
         batch = Transition(*zip(*transition))
         state = torch.cat(batch.state)
@@ -143,18 +142,17 @@ class Environment:
         reward = torch.cat(batch.reward)
         done = torch.cat(batch.done)
         
-        qvalue = self.q_network(state)
+        qvalue = qnet_script(state)
         action_onehot = torch.eye(self.action_space)[action.squeeze()]
         Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
-        next_qvalue = self.q_network(next_state)
+        next_qvalue = qnet_script(next_state)
         next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
         next_action_onehot = torch.eye(self.action_space)[next_action]
         next_maxQ = torch.sum(next_qvalue * next_action_onehot, dim=1, keepdim=True)
         reward_sum = torch.zeros_like(reward[:, 0].unsqueeze(1))
-        for r in reversed(range(self.advanced_step)):
-            reward_sum += self.gamma * reward_sum + reward[:, r].unsqueeze(1)
-        TQ = (reward_sum + pow(self.gamma, self.advanced_step) * (1 - done.int().unsqueeze(1)) * next_maxQ).squeeze()
-        #td_error = (TQ.squeeze() - Q).detach().numpy().flatten()
+        for r in range(self.advanced_step):
+            reward_sum += self.gamma ** r * reward[:, r].unsqueeze(1)
+        TQ = (reward_sum + self.gamma ** self.advanced_step * (1 - done.int().unsqueeze(1)) * next_maxQ).squeeze()
         td_error = torch.square(Q - TQ)
         td_errors = td_error.cpu().detach().numpy().flatten()
 
@@ -229,13 +227,15 @@ class Learner:
     
     def define_network(self) -> parameter:
         current_weights = self.main_q_network.to('cpu').state_dict()
-        self.main_q_network.to(device)  
+        self.main_q_network.to(device)
+        self.update_target_q_network()  
         return current_weights
 
     def update(self, minibatch: Tuple) -> list:
         
         index_all = []
         td_error_all = []
+        loss_list = []
 
         for (index, weight, transition) in minibatch:
 
@@ -251,15 +251,16 @@ class Learner:
             self.target_q_network.eval()
 
             #TDerror
+#            with torch.no_grad():
             next_qvalue = self.main_q_network(next_state_batch)
             next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
             next_action_onehot = torch.eye(self.action_space)[next_action].to(device)
             target_qvalue = self.target_q_network(next_state_batch)
             next_maxQ = torch.sum(target_qvalue * next_action_onehot, dim=1, keepdim=True)
             reward_sum = torch.zeros_like(reward_batch[:, 0].unsqueeze(1))
-            for r in reversed(range(self.advanced_step)):
-                reward_sum += self.gamma * reward_sum + reward_batch[:, r].unsqueeze(1)
-            TQ = (reward_sum + pow(self.gamma, self.advanced_step) * (1 - done_batch.int().unsqueeze(1)) * next_maxQ).squeeze()
+            for r in range(self.advanced_step):
+                reward_sum += self.gamma ** r * reward_batch[:, r].unsqueeze(1)
+            TQ = (reward_sum + self.gamma ** self.advanced_step * (1 - done_batch.int().unsqueeze(1)) * next_maxQ).squeeze()
             #Q(s,a)-value
             qvalue = self.main_q_network(state_batch)
             action_onehot = torch.eye(self.action_space)[action_batch.squeeze()].to(device)
@@ -301,14 +302,14 @@ class Tester:
         self.q_network.load_state_dict(current_weights)
         env = gym.make(ENV)
         state = env.reset()
-        state = get_initial_state(state)
+        state = initial_state(state)
         total_reward = 0
         done = False
         while not done:
             action = self.q_network.get_action(state=state, epsilon=self.epsilon)
             new_state, reward, done, _ = env.step(action)
             total_reward += reward
-            state = input_image(new_state, state)
+            state = input_state(new_state, state)
         
         return total_reward, step
     
@@ -363,14 +364,14 @@ def main(num_envs: int) -> None:
             wip_env.extend([envs[pid].rollout.remote(current_weights_ray)])
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
-            if finished_learner:
+            if finished_learner and actor_cycle >= 100:
                 current_weights, index, td_error = ray.get(finished_learner[0])
                 current_weights_ray = ray.put(current_weights)
                 wip_learner = learner.update.remote(minibatch)
                 replay_memory.update_priority(index, td_error)
                 minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(16)]
                 
-                #print(f"Actorが遷移をReplayに渡した回数:{actor_cycle}")
+                #rint(f"Actorが遷移をReplayに渡した回数:{actor_cycle}")
 
                 pbar.update(1)
                 num_update += 1

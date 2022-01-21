@@ -1,6 +1,7 @@
 from torch import nn
 import random
 import numpy as np
+import torch
 
 ACTION = 2
 
@@ -30,8 +31,9 @@ class Net(nn.Module):
         
         self.eval()
         if random.random() > epsilon:
-            qvalue = self(state)
-            action = qvalue.max(1)[1].view(1, 1).item()
+            with torch.no_grad():
+                qvalue = self(state)
+                action = qvalue.max(1)[1].view(1, 1).item()
         else:
             action = np.random.choice(self.action_space)
         

@@ -21,6 +21,8 @@ Transition = namedtuple(
     'Transition', ('state', 'action', 'next_state', 'reward', 'done'))
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cpu')
+torch.backends.cudnn.benchmark = True
 
 def arg_get() -> argparse.Namespace:
     
@@ -29,7 +31,7 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--graph", action="store_true", help="show Graph")
     parser.add_argument("--save", action="store_true",help="save parameter")
     parser.add_argument("--gamma", default=0.98, type=float, help="learning rate")
-    parser.add_argument("--batch", default=32, type=int, help="batch size")
+    parser.add_argument("--batch", default=64, type=int, help="batch size")
     parser.add_argument("--capacity", default=2 ** 14, type=int, help="Replay memory size (2 ** x)")
     parser.add_argument("--epsilon", default=0.5, type=float, help="exploration rate")
     parser.add_argument("--advanced", default=5, type=int, help="number of advanced step")
@@ -58,8 +60,6 @@ class Environment:
     
     def rollout(self, weights: parameter) -> list:
 
-        #print("Start:{}-Environment".format(self.pid))
-
         self.q_network.load_state_dict(weights)
         buffer = []
         
@@ -68,12 +68,7 @@ class Environment:
             next_state, reward, done, _ = self.env.step(action)
             self.episode_reward += reward
             next_state = torch.from_numpy(np.atleast_2d(next_state).astype(np.float32)).clone()
-            transition = Transition(self.state,
-                                    torch.LongTensor([[action]]),
-                                    next_state, 
-                                    torch.FloatTensor([reward]),
-                                    torch.BoolTensor([done])
-                                    )
+            transition = Transition(self.state, torch.LongTensor([[action]]), next_state, torch.FloatTensor([reward]), torch.BoolTensor([done]))
             buffer.append(transition)
             if done:
                 state = self.env.reset()
@@ -87,8 +82,8 @@ class Environment:
     
     def init_prior(self, transition: list) -> list:
 
-        self.q_network.eval()
-        
+        qnet_script = torch.jit.script(self.q_network.eval())
+
         batch = Transition(*zip(*transition))
         state = torch.cat(batch.state)
         action = torch.cat(batch.action)
@@ -96,10 +91,10 @@ class Environment:
         reward = torch.cat(batch.reward)
         done = torch.cat(batch.done)
 
-        qvalue = self.q_network(state)# Q(s,a)-value
+        qvalue = qnet_script(state)# Q(s,a)-value
         action_onehot = torch.eye(self.action_space)[action.squeeze()]
         Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
-        next_qvalue = self.q_network(next_state)
+        next_qvalue = qnet_script(next_state)
         next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
         next_action_onehot = torch.eye(self.action_space)[next_action]
         next_maxQ = torch.sum(next_qvalue * next_action_onehot, dim=1, keepdim=True)
@@ -157,7 +152,7 @@ class Experiment_Replay:
     def __len__(self) -> int:
         return len(self.memory)
 
-@ray.remote(num_gpus=1)
+@ray.remote(num_gpus=0.5)
 class Learner:
     def __init__(self, num_actions: int, batch_size: int, gamma: float):
         self.num_action = num_actions
@@ -171,6 +166,7 @@ class Learner:
     def define_network(self) -> parameter:
         current_weights = self.main_q_network.to('cpu').state_dict()
         self.main_q_network.to(device)  
+        self.update_target_q_network()  
         return current_weights
 
     def update(self, minibatch: Tuple) -> list:
@@ -192,15 +188,18 @@ class Learner:
             self.target_q_network.eval()
 
             #TDerror
+            #with torch.no_grad():
             next_qvalue = self.main_q_network(next_state_batch)
             next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
             next_action_onehot = torch.eye(self.num_action)[next_action].to(device)
             target_qvalue = self.target_q_network(next_state_batch)
             next_maxQ = torch.sum(target_qvalue * next_action_onehot, dim=1, keepdim=True)
             TQ = (reward_batch.unsqueeze(1) + self.gamma* (1 - done_batch.int().unsqueeze(1)) * next_maxQ).squeeze()
+        
             qvalue = self.main_q_network(state_batch)
             action_onehot = torch.eye(self.num_action)[action_batch.squeeze()].to(device)
             Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()#Q(s,a)-value
+            
             td_error = torch.square(Q - TQ)
             td_errors = td_error.cpu().detach().numpy().flatten()
 
@@ -271,7 +270,7 @@ def main(num_envs: int) -> None:
     num_update = 0
 
     wip_env = [env.rollout.remote(current_weights_ray) for env in envs]
-    for _ in range(30):
+    for _ in tqdm(range(30)):
         finish_env, wip_env = ray.wait(wip_env, num_returns=1)
         td_error, transition, pid = ray.get(finish_env[0])
         replay_memory.push(td_error, transition)
@@ -294,7 +293,7 @@ def main(num_envs: int) -> None:
             wip_env.extend([envs[pid].rollout.remote(current_weights_ray)])
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
-            if finished_learner and actor_cycle >= 25:
+            if finished_learner:
                 current_weights, index, td_error = ray.get(finished_learner[0])
                 current_weights_ray = ray.put(current_weights)
                 wip_learner = learner.update.remote(minibatch)
@@ -302,7 +301,7 @@ def main(num_envs: int) -> None:
                 replay_memory.update_priority(index, td_error)
                 minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(16)]
 
-                #print(f"Actorが遷移をReplayに渡した回数:{actor_cycle}")
+                print(f"Actorが遷移をReplayに渡した回数:{actor_cycle}")
 
                 pbar.update(1)
                 num_update += 1
@@ -323,8 +322,8 @@ def main(num_envs: int) -> None:
         writer.add_scalar(f"Ape-X_CartPole.png", test_score, step)
         writer.close()
     ray.shutdown()
-    #print(f"actor_sum: {sum} ")
+    print(f"actor_sum: {sum} ")
     print("END")
     
 if __name__ == '__main__':
-    main(num_envs=8)
+    main(num_envs=20)
