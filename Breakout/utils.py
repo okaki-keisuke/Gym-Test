@@ -32,7 +32,7 @@ def input_image(observation: np, state: torch.Tensor) -> torch.Tensor:
 
 def initial_state(state: np) -> torch.Tensor:
         state_pil = Image.fromarray(state)
-        state_pil = state_pil.crop((34, 0, 160, 160)).convert("L").resize((INPUT_WIDTH, INPUT_HEIGHT))
+        state_pil = state_pil.crop((0, 34, 160, 160)).convert("L").resize((INPUT_WIDTH, INPUT_HEIGHT))
         state_torch = torchvision.transforms.functional.to_tensor(state_pil)
         state_torch = state_torch.reshape(1, 1, INPUT_HEIGHT, INPUT_WIDTH)
         state_torch = torch.div(state_torch, 255)
@@ -41,7 +41,7 @@ def initial_state(state: np) -> torch.Tensor:
 
 def input_state(state: np, pre_state: torch.Tensor) -> torch.Tensor:
         state_pil = Image.fromarray(state)
-        state_pil = state_pil.crop((34, 0, 160, 160)).convert("L").resize((INPUT_WIDTH, INPUT_HEIGHT))
+        state_pil = state_pil.crop((0, 34, 160, 160)).convert("L").resize((INPUT_WIDTH, INPUT_HEIGHT))
         state_torch = torchvision.transforms.functional.to_tensor(state_pil)
         state_torch = state_torch.reshape(1, 1, INPUT_HEIGHT, INPUT_WIDTH)
         state_torch = torch.div(state_torch, 255)

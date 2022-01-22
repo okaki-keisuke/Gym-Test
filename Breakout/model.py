@@ -47,13 +47,13 @@ class Net(nn.Module):
 
         return output
 
-    @torch.no_grad()
     def get_action(self, state, epsilon):
         
         self.eval()
         if random.random() > epsilon:
-            qvalue = self(state)
-            action = qvalue.max(1)[1].view(1, 1).item()
+            with torch.no_grad():
+                qvalue = self(state)
+                action = qvalue.max(1)[1].view(1, 1).item()
         else:
             action = np.random.choice(self.action_space)
         

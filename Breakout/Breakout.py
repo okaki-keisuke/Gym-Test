@@ -32,7 +32,7 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--graph", action="store_true", help="show Graph")
     parser.add_argument("--save", action="store_true",help="save parameter")
     parser.add_argument("--gamma", default=0.99, type=float, help="learning rate")
-    parser.add_argument("--batch", default=512, type=int, help="batch size")
+    parser.add_argument("--batch", default=256, type=int, help="batch size")
     parser.add_argument("--capacity", default=2 ** 18, type=int, help="Replay memory size (2 ** x)")
     parser.add_argument("--epsilon", default=0.5, type=float, help="exploration rate")
     parser.add_argument("--eps_alpha", default=7, type=int, help="epsilon alpha")
@@ -82,7 +82,7 @@ class Agent:
         self.store_state = []
 
 
-@ray.remote
+@ray.remote(num_cpus=1)
 class Environment:
     def __init__(self, pid: int, gamma: float, advanced_step: int, epsilon: float, local_cycle: int):
         self.pid = pid
@@ -115,7 +115,7 @@ class Environment:
             self.agent.reward_storage(reward)
             if self.agent.data_full():
                 transition = Transition(self.agent.state[0],
-                                        torch.LongTensor([[action]]),
+                                        torch.LongTensor([action]),
                                         self.agent.state[1], 
                                         torch.FloatTensor([self.agent.reward]),
                                         torch.BoolTensor([done])
@@ -143,7 +143,7 @@ class Environment:
         done = torch.cat(batch.done)
         
         qvalue = qnet_script(state)
-        action_onehot = torch.eye(self.action_space)[action.squeeze()]
+        action_onehot = torch.eye(self.action_space)[action]
         Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
         next_qvalue = qnet_script(next_state)
         next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
@@ -263,7 +263,7 @@ class Learner:
             TQ = (reward_sum + self.gamma ** self.advanced_step * (1 - done_batch.int().unsqueeze(1)) * next_maxQ).squeeze()
             #Q(s,a)-value
             qvalue = self.main_q_network(state_batch)
-            action_onehot = torch.eye(self.action_space)[action_batch.squeeze()].to(device)
+            action_onehot = torch.eye(self.action_space)[action_batch].to(device)
             Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
             td_error = torch.square(Q - TQ)
             td_errors = td_error.cpu().detach().numpy().flatten()
@@ -364,7 +364,7 @@ def main(num_envs: int) -> None:
             wip_env.extend([envs[pid].rollout.remote(current_weights_ray)])
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
-            if finished_learner and actor_cycle >= 100:
+            if finished_learner and actor_cycle >= 80:
                 current_weights, index, td_error = ray.get(finished_learner[0])
                 current_weights_ray = ray.put(current_weights)
                 wip_learner = learner.update.remote(minibatch)
