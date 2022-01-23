@@ -1,3 +1,4 @@
+from collections import deque
 from typing import Tuple
 import numpy as np
 import torch
@@ -10,7 +11,6 @@ import ray
 from priority_tree import Experiment_Replay
 from Actor import Environment, ENV, Transition, Tester
 from model import Net
-from utils import initial_state, input_state
 import argparse
 from tqdm import tqdm
 import os
@@ -25,8 +25,8 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--graph", action="store_true", help="show Graph")
     parser.add_argument("--save", action="store_true",help="save parameter")
     parser.add_argument("--gamma", default=0.99, type=float, help="learning rate")
-    parser.add_argument("--batch", default=256, type=int, help="batch size")
-    parser.add_argument("--capacity", default=2 ** 17, type=int, help="Replay memory size (2 ** x)")
+    parser.add_argument("--batch", default=512, type=int, help="batch size")
+    parser.add_argument("--capacity", default=2 ** 18, type=int, help="Replay memory size (2 ** x)")
     parser.add_argument("--epsilon", default=0.5, type=float, help="exploration rate")
     parser.add_argument("--eps_alpha", default=7, type=int, help="epsilon alpha")
     parser.add_argument("--advanced", default=3, type=int, help="number of advanced step")
@@ -37,6 +37,7 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--min_replay", default=50000, type=int, help="min experience replay data")
     parser.add_argument("--local_cycle", default=100, type=int, help="number of cycle in Local Environment")
     parser.add_argument("--num_minibatch", default=16, type=int, help="number of minibatch for 1 update")
+    parser.add_argument("--n_frame", default=4, type=int, help="state frame")
 
     # 結果を受ける
     args = parser.parse_args()
@@ -90,10 +91,7 @@ class Learner:
             next_action_onehot = torch.eye(self.action_space)[next_action].to(device)
             target_qvalue = self.target_q_network(next_state_batch)
             next_maxQ = torch.sum(target_qvalue * next_action_onehot, dim=1, keepdim=True)
-            reward_sum = torch.zeros_like(reward_batch[:, 0].unsqueeze(1))
-            for r in range(self.advanced_step):
-                reward_sum += self.gamma ** r * reward_batch[:, r].unsqueeze(1)
-            TQ = (reward_sum + self.gamma ** self.advanced_step * (1 - done_batch.int().unsqueeze(1)) * next_maxQ).squeeze()
+            TQ = (reward_batch + self.gamma ** self.advanced_step * (1 - done_batch.int().unsqueeze(1)) * next_maxQ).squeeze()
             #Q(s,a)-value
             qvalue = self.main_q_network(state_batch)
             action_onehot = torch.eye(self.action_space)[action_batch].to(device)
@@ -138,14 +136,14 @@ def main(num_envs: int) -> None:
     #epsilons = np.linspace(0.01, args.epsilon, num_envs)
     epsilons = [args.epsilon ** (1 + args.eps_alpha * i / (num_envs - 1)) for i in range(num_envs)]
     epsilons = [max(0.01, eps) for eps in epsilons]
-    envs = [Environment.remote(pid=i, gamma=args.gamma, advanced_step=args.advanced, epsilon=epsilons[i], local_cycle=args.local_cycle) for i in range(num_envs)]
+    envs = [Environment.remote(pid=i, gamma=args.gamma, advanced_step=args.advanced, epsilon=epsilons[i], local_cycle=args.local_cycle, n_frame=args.n_frame) for i in range(num_envs)]
     replay_memory = Experiment_Replay(capacity=args.capacity, td_epsilon=args.td_epsilon)
     action_space = envs[0].get_action_space.remote()
     learner = Learner.remote(action_space=action_space, batch_size=args.batch, gamma=args.gamma, advanced_step=args.advanced, target_update=args.target_update)
     current_weights = ray.get(learner.define_network.remote())
     if args.save: torch.save(current_weights, f'{model_path}/model_step_{0:03}.pth')
     current_weights = ray.put(current_weights)
-    tester = Tester.remote(action_space=action_space)
+    tester = Tester.remote(action_space=action_space, n_frame=args.n_frame)
     if args.graph: writer = SummaryWriter(log_dir="./logs2/run_{}".format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")))
     num_update = 0
 
@@ -176,7 +174,7 @@ def main(num_envs: int) -> None:
             wip_env.extend([envs[pid].rollout.remote(current_weights)])
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
-            if finished_learner and actor_cycle >= 80:
+            if finished_learner : #and actor_cycle >= 80:
                 current_weights, index, td_error = ray.get(finished_learner[0])
                 if args.save and num_update % 500 == 0: 
                     torch.save(current_weights, f'{model_path}/model_step_{num_update//args.interval:03}.pth')
@@ -185,7 +183,7 @@ def main(num_envs: int) -> None:
                 replay_memory.update_priority(index, td_error)
                 minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(16)]
                 
-                #rint(f"Actorが遷移をReplayに渡した回数:{actor_cycle}")
+                #print(f"Actorが遷移をReplayに渡した回数:{actor_cycle}")
 
                 pbar.update(1)
                 num_update += 1
@@ -198,7 +196,7 @@ def main(num_envs: int) -> None:
                     if args.graph:
                         writer.add_scalar(f"Ape-X_Breakout.png", test_score, step)
                     print('\n' + '-' * 80)
-                    print(f"Test End : {num_update//args.interval - 1} | Number of Updates : {num_update} | Test Score : {test_score}")
+                    print(f"Test End   : {num_update//args.interval - 1} | Number of Updates : {num_update} | Test Score : {test_score}")
                     #Test End↑　Test Start↓
                     wip_tester = tester.test_play.remote(current_weights, num_update)
                     print(f"Test Start : {num_update//args.interval} | Number of Updates : {num_update} | Number of Push : {sum}")
@@ -207,7 +205,7 @@ def main(num_envs: int) -> None:
     ray.get(wip_env)
     test_score, step = ray.get(wip_tester)
     print('\n' + '-' * 80)
-    print(f"Test End : {num_update//args.interval} | Number of Updates : {num_update} | Test Score : {test_score}")
+    print(f"Test End   : {num_update//args.interval} | Number of Updates : {num_update} | Test Score : {test_score}")
     print('-' * 80)
     if args.graph:
         writer.add_scalar(f"Ape-X_Breakout.png", test_score, step)

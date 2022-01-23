@@ -1,12 +1,13 @@
+from importlib_metadata import collections
 import torch
 from torch.nn import parameter
 import copy
 import ray
 import gym
-from collections import namedtuple
+from collections import deque, namedtuple
 from model import Net
-from utils import initial_state, input_state
-
+from utils import preproccess
+import numpy as np
 
 ENV = "BreakoutDeterministic-v4"
 
@@ -14,42 +15,43 @@ Transition = namedtuple(
     'Transition', ('state', 'action', 'next_state', 'reward', 'done'))
 
 class Agent:
-    def __init__(self, advanced_step: int):
+    def __init__(self, advanced_step: int, gamma: float):
         self.multi_step = advanced_step
-        self.state = []
-        self.reward = []
+        self.state = collections.deque(maxlen=self.multi_step)
+        self.store_reward = []
         self.reward_nstep = 0
         self.store_state = []
-    
-    def state_storage(self, state: torch.Tensor) -> None:
-        self.store_state.append(state)
-        if len(self.store_state) > self.multi_step + 1:
-            del self.store_state[0]
-        self.state = copy.deepcopy(self.store_state)
-        del self.state[1:-1]
-        assert len(self.state) <= 2
+        self.gamma = gamma
 
-    def reward_storage(self, reward: torch.Tensor) -> None:
-        self.reward.append(reward) 
+    def state_storage(self, statorch: torch.Tensor) -> torch.Tensor:
+        
+        self.state.append(statorch)
+        
 
-        if len(self.reward) > self.multi_step:
-            del self.reward[0]
-
+    def reward_storage(self, reward: np) -> None:
+        self.store_reward.append(reward)
+        if len(self.store_reward) == self.multi_step + 1:
+            del self.store_reward[0]
+            self.reward_nstep = 0
+            for step in range(self.multi_step):
+                self.reward_nstep += self.gamma ** step * self.store_reward[step]
+        
     def data_full(self) -> bool:
-        if len(self.reward) == self.multi_step and len(self.store_state) == self.multi_step + 1:
+        if len(self.state) == self.multi_step:
             return True
         
         return False
     
     def reset(self):
-        self.state = []
-        self.reward = []
+        self.state.clear()
+        self.store_reward = []
         self.store_state = []
+        self.reward_nstep = 0
 
 
 @ray.remote
 class Environment:
-    def __init__(self, pid: int, gamma: float, advanced_step: int, epsilon: float, local_cycle: int):
+    def __init__(self, pid: int, gamma: float, advanced_step: int, epsilon: float, local_cycle: int, n_frame: int):
         self.pid = pid
         self.env_name = ENV
         self.env = gym.make(self.env_name)
@@ -57,10 +59,14 @@ class Environment:
         self.q_network = Net(action_space=self.action_space)
         self.epsilon = epsilon
         self.gamma = gamma
+        self.n_frame = n_frame
+        self.frames = collections.deque(maxlen=self.n_frame)
         self.advanced_step = advanced_step
-        state = self.env.reset()
-        self.agent = Agent(advanced_step=self.advanced_step)
-        self.agent.state_storage(initial_state(state))
+        self.agent = Agent(advanced_step=self.advanced_step, gamma=self.gamma)
+        state = preproccess(self.env.reset())
+        for _ in range(self.n_frame):
+            self.frames.append(state)
+        self.agent.state_storage(torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...]))
         self.episode_reward = 0
         self.local_cycle = local_cycle
     
@@ -70,28 +76,35 @@ class Environment:
 
         self.q_network.load_state_dict(weights) 
         buffer = []
-
+        
+        state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
         for _ in range(self.local_cycle):
-
-            action = self.q_network.get_action(self.agent.state[-1], epsilon=self.epsilon)
-            next_state, reward, done, _ = self.env.step(action)
-            self.agent.state_storage(input_state(next_state, self.agent.state[-1]))
+            
+            action = self.q_network.get_action(state, epsilon=self.epsilon)
+            next_frame, reward, done, _ = self.env.step(action)
+            self.frames.append(preproccess(next_frame))
+            next_state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
             self.episode_reward += reward
             self.agent.reward_storage(reward)
             if self.agent.data_full():
-                transition = Transition(self.agent.state[0],
+                transition = Transition(self.agent.state.popleft(),
                                         torch.LongTensor([action]),
-                                        self.agent.state[1], 
-                                        torch.FloatTensor([self.agent.reward]),
+                                        next_state, 
+                                        torch.FloatTensor([[self.agent.reward_nstep]]),
                                         torch.BoolTensor([done])
                                         )
                 buffer.append(transition)
+
             if done:
-               self.agent.reset()
-               state = self.env.reset()
-               self.agent.state_storage(initial_state(state))
-               self.episode_reward = 0
-                
+                self.agent.reset()
+                state = preproccess(self.env.reset())
+                for _ in range(self.n_frame):
+                    self.frames.append(state)
+                self.agent.state_storage(torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...]))
+                self.episode_reward = 0
+            
+            self.agent.state_storage(next_state)
+            state = next_state
         td_error , transitions = self.init_prior(buffer)
 
         return td_error, transitions, self.pid
@@ -114,10 +127,7 @@ class Environment:
         next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
         next_action_onehot = torch.eye(self.action_space)[next_action]
         next_maxQ = torch.sum(next_qvalue * next_action_onehot, dim=1, keepdim=True)
-        reward_sum = torch.zeros_like(reward[:, 0].unsqueeze(1))
-        for r in range(self.advanced_step):
-            reward_sum += self.gamma ** r * reward[:, r].unsqueeze(1)
-        TQ = (reward_sum + self.gamma ** self.advanced_step * (1 - done.int().unsqueeze(1)) * next_maxQ).squeeze()
+        TQ = (reward + self.gamma ** self.advanced_step * (1 - done.int().unsqueeze(1)) * next_maxQ).squeeze()
         td_error = torch.square(Q - TQ)
         td_errors = td_error.detach().numpy().flatten()
 
@@ -130,21 +140,33 @@ class Environment:
 @ray.remote
 class Tester:
 
-    def __init__(self, action_space: int):
+    def __init__(self, action_space: int, n_frame: int):
         self.q_network = Net(action_space)
         self.epsilon = 0.01
+        self.env_name = ENV
+        self.env = gym.make(self.env_name)
+        self.n_frame = n_frame
+        self.frames = collections.deque(maxlen=self.n_frame)
+
+
     
     def test_play(self, current_weights: parameter, step: int) -> list:
         self.q_network.load_state_dict(current_weights)
-        env = gym.make(ENV)
-        state = env.reset()
-        state = initial_state(state)
+        state = preproccess(self.env.reset())
+        for _ in range(self.n_frame):
+            self.frames.append(state)
+        state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
         total_reward = 0
+        episode = 0
         done = False
         while not done:
             action = self.q_network.get_action(state=state, epsilon=self.epsilon)
-            new_state, reward, done, _ = env.step(action)
+            new_state, reward, done, _ = self.env.step(action)
             total_reward += reward
-            state = input_state(new_state, state)
+            episode += 1
+            if episode > 1000 and total_reward < 10:
+                break
+            self.frames.append(preproccess(new_state))
+            state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
         
         return total_reward, step
