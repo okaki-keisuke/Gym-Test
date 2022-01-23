@@ -52,6 +52,7 @@ class Environment:
         self.env = gym.make(self.env_name)
         self.action_space = self.env.action_space.n
         self.q_network = Net()
+        self.qnet_script = torch.jit.script(self.q_network.eval())
         self.epsilon = epsilon 
         self.gamma = gamma
         state = self.env.reset()
@@ -61,6 +62,7 @@ class Environment:
     def rollout(self, weights: parameter) -> list:
 
         self.q_network.load_state_dict(weights)
+        self.qnet_script = torch.jit.script(self.q_network.eval())
         buffer = []
         
         for _ in range(100):
@@ -82,25 +84,25 @@ class Environment:
     
     def init_prior(self, transition: list) -> list:
 
-        qnet_script = torch.jit.script(self.q_network.eval())
+        with torch.no_grad():
 
-        batch = Transition(*zip(*transition))
-        state = torch.cat(batch.state)
-        action = torch.cat(batch.action)
-        next_state = torch.cat(batch.next_state)
-        reward = torch.cat(batch.reward)
-        done = torch.cat(batch.done)
+            batch = Transition(*zip(*transition))
+            state = torch.cat(batch.state)
+            action = torch.cat(batch.action)
+            next_state = torch.cat(batch.next_state)
+            reward = torch.cat(batch.reward)
+            done = torch.cat(batch.done)
 
-        qvalue = qnet_script(state)# Q(s,a)-value
-        action_onehot = torch.eye(self.action_space)[action.squeeze()]
-        Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
-        next_qvalue = qnet_script(next_state)
-        next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
-        next_action_onehot = torch.eye(self.action_space)[next_action]
-        next_maxQ = torch.sum(next_qvalue * next_action_onehot, dim=1, keepdim=True)
-        TQ = (reward.unsqueeze(1) + self.gamma * (1 - done.int().unsqueeze(1)) * next_maxQ).squeeze()
-        td_error = torch.square(Q - TQ)
-        td_errors = td_error.detach().numpy().flatten()
+            qvalue = self.qnet_script(state)# Q(s,a)-value
+            action_onehot = torch.eye(self.action_space)[action.squeeze()]
+            Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
+            next_qvalue = self.qnet_script(next_state)
+            next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
+            next_action_onehot = torch.eye(self.action_space)[next_action]
+            next_maxQ = torch.sum(next_qvalue * next_action_onehot, dim=1, keepdim=True)
+            TQ = (reward.unsqueeze(1) + self.gamma * (1 - done.int().unsqueeze(1)) * next_maxQ).squeeze()
+            td_error = torch.square(Q - TQ)
+            td_errors = td_error.detach().numpy().flatten()
 
         return td_errors, transition
 
@@ -254,7 +256,6 @@ def main(num_envs: int) -> None:
         os.makedirs('/home/mukai/params/run_Ape-X_CartPole_{}'.format(date, exist_ok=True))
         model_path = '/home/mukai/params/run_Ape-X_CartPole_{}'.format(date)
 
-    ray.init()
     print("START")
     epsilons = np.linspace(0.01, 0.5, num_envs)
     envs = [Environment.remote(pid=i, gamma=args.gamma, epsilon=epsilons[i]) for i in range(num_envs)]
@@ -321,9 +322,10 @@ def main(num_envs: int) -> None:
     if args.graph:
         writer.add_scalar(f"Ape-X_CartPole.png", test_score, step)
         writer.close()
-    ray.shutdown()
     print(f"actor_sum: {sum} ")
     print("END")
     
 if __name__ == '__main__':
+    ray.init(include_webui=True)
     main(num_envs=20)
+    ray.shutdown()

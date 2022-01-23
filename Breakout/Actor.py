@@ -18,6 +18,7 @@ class Agent:
         self.multi_step = advanced_step
         self.state = []
         self.reward = []
+        self.reward_nstep = 0
         self.store_state = []
     
     def state_storage(self, state: torch.Tensor) -> None:
@@ -30,6 +31,7 @@ class Agent:
 
     def reward_storage(self, reward: torch.Tensor) -> None:
         self.reward.append(reward) 
+
         if len(self.reward) > self.multi_step:
             del self.reward[0]
 
@@ -50,7 +52,7 @@ class Environment:
     def __init__(self, pid: int, gamma: float, advanced_step: int, epsilon: float, local_cycle: int):
         self.pid = pid
         self.env_name = ENV
-        self.env = gym.make(ENV)
+        self.env = gym.make(self.env_name)
         self.action_space = self.env.action_space.n
         self.q_network = Net(action_space=self.action_space)
         self.epsilon = epsilon
@@ -117,10 +119,32 @@ class Environment:
             reward_sum += self.gamma ** r * reward[:, r].unsqueeze(1)
         TQ = (reward_sum + self.gamma ** self.advanced_step * (1 - done.int().unsqueeze(1)) * next_maxQ).squeeze()
         td_error = torch.square(Q - TQ)
-        td_errors = td_error.cpu().detach().numpy().flatten()
+        td_errors = td_error.detach().numpy().flatten()
 
         return td_errors, transition
     
     def get_action_space(self) -> int:
         
         return self.action_space
+
+@ray.remote
+class Tester:
+
+    def __init__(self, action_space: int):
+        self.q_network = Net(action_space)
+        self.epsilon = 0.01
+    
+    def test_play(self, current_weights: parameter, step: int) -> list:
+        self.q_network.load_state_dict(current_weights)
+        env = gym.make(ENV)
+        state = env.reset()
+        state = initial_state(state)
+        total_reward = 0
+        done = False
+        while not done:
+            action = self.q_network.get_action(state=state, epsilon=self.epsilon)
+            new_state, reward, done, _ = env.step(action)
+            total_reward += reward
+            state = input_state(new_state, state)
+        
+        return total_reward, step
