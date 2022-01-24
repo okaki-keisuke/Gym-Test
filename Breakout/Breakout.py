@@ -98,7 +98,6 @@ class Learner:
             action_onehot = torch.eye(self.action_space)[action_batch].to(device)
             Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
             td_error = torch.square(Q - TQ)
-            td_errors = td_error.cpu().detach().numpy().flatten()
 
             self.main_q_network.train()
             loss = torch.mean(weights * td_error)
@@ -108,8 +107,8 @@ class Learner:
             self.optimizer.step()
 
             index_all += index
-            td_error_all += td_errors.tolist()
-            loss_list.append(loss.numpy())
+            td_error_all += td_error.cpu().detach().numpy().flatten().tolist()
+            loss_list.append(loss.cpu().detach().numpy())
             self.update_count += 1
 
             if self.update_count % self.target_update == 0:
@@ -186,7 +185,7 @@ def main(num_envs: int) -> None:
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
 
-            if finished_learner : #and actor_cycle >= 80:
+            if finished_learner and actor_cycle >= 100:
                 current_weights, index, td_error, loss_mean = ray.get(finished_learner[0])
                 if args.save and num_update % 500 == 0: 
                     torch.save(current_weights, f'{model_path}/model_step_{num_update//args.interval:03}.pth')

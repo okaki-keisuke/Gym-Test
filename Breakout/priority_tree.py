@@ -27,8 +27,8 @@ class Experiment_Replay:
     def update_priority(self, sampled_index: list, td_errors: list) -> None:
         assert len(sampled_index) == len(td_errors)
         for idx, td_error in zip(sampled_index, td_errors):
-            priority = (abs(td_error) + 0.001) ** self.alpha
-            self.priority[idx] = priority
+            priority = (np.abs(td_error) + 0.001) ** self.alpha
+            self.priority[idx] = priority ** self.alpha
 
     def sample(self, batch_size: int) -> list:
         #index
@@ -47,7 +47,7 @@ class Experiment_Replay:
         return samples_index, weights, experience
 
     def __len__(self) -> int:
-        
+
         return len(self.memory) if self.is_full else self.index
 
 if __name__=="__main__":
