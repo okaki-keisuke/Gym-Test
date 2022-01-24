@@ -170,7 +170,7 @@ class Tester:
             self.frames.append(preproccess(new_state))
             state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
         
-        return total_reward, step
+        return total_reward, episode, step
 
 if __name__=="__main__":
     pass

@@ -1,3 +1,4 @@
+from asyncore import write
 from typing import Tuple
 import numpy as np
 import torch
@@ -45,17 +46,18 @@ def arg_get() -> argparse.Namespace:
 
 @ray.remote(num_cpus=1, num_gpus=1)
 class Learner:
-    def __init__(self, action_space: int, batch_size: int, gamma: float, advanced_step: int, target_update: int):
+    def __init__(self, action_space: int, gamma: float, advanced_step: int, target_update: int):
         self.action_space = action_space
-        self.main_q_network = Net(self.action_space).to(device)
-        self.target_q_network = Net(self.action_space).to(device)
-        #self.optimizer = optim.Adam(self.main_q_network.parameters(), lr=0.001)
-        self.optimizer = optim.RMSprop(self.main_q_network.parameters(), lr=0.0025/4, alpha=0.9, momentum=0.0, eps=1.5e-07, centered=True)
-        self.scheduler = lr_scheduler.StepLR(self.optimizer, 1000, gamma=0.8)
-        self.batch_size = batch_size
         self.gamma = gamma
         self.advanced_step = advanced_step
+        self.main_q_network = Net(self.action_space).to(device)
+        self.target_q_network = Net(self.action_space).to(device)
         self.target_update = target_update
+        
+        #self.optimizer = optim.Adam(self.main_q_network.parameters(), lr=0.001)
+        self.optimizer = optim.RMSprop(self.main_q_network.parameters(), lr=0.0025/4, alpha=0.95, momentum=0.0, eps=1.5e-07, centered=True)
+        self.scheduler = lr_scheduler.StepLR(self.optimizer, 1000, gamma=0.8)
+        
         self.update_count = 0
     
     def define_network(self) -> parameter:
@@ -84,13 +86,13 @@ class Learner:
             self.target_q_network.eval()
 
             #TDerror
-#            with torch.no_grad():
-            next_qvalue = self.main_q_network(next_state_batch)
-            next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
-            next_action_onehot = torch.eye(self.action_space)[next_action].to(device)
-            target_qvalue = self.target_q_network(next_state_batch)
-            next_maxQ = torch.sum(target_qvalue * next_action_onehot, dim=1, keepdim=True)
-            TQ = (reward_batch + self.gamma ** self.advanced_step * (1 - done_batch.int().unsqueeze(1)) * next_maxQ).squeeze()
+            with torch.no_grad():
+                next_qvalue = self.main_q_network(next_state_batch)
+                next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
+                next_action_onehot = torch.eye(self.action_space)[next_action].to(device)
+                target_qvalue = self.target_q_network(next_state_batch)
+                next_maxQ = torch.sum(target_qvalue * next_action_onehot, dim=1, keepdim=True)
+                TQ = (reward_batch + self.gamma ** self.advanced_step * (1 - done_batch.int().unsqueeze(1)) * next_maxQ).squeeze()
             #Q(s,a)-value
             qvalue = self.main_q_network(state_batch)
             action_onehot = torch.eye(self.action_space)[action_batch].to(device)
@@ -107,6 +109,7 @@ class Learner:
 
             index_all += index
             td_error_all += td_errors.tolist()
+            loss_list.append(loss.numpy())
             self.update_count += 1
 
             if self.update_count % self.target_update == 0:
@@ -115,8 +118,9 @@ class Learner:
         #self.scheduler.step()
         current_weight = self.main_q_network.to('cpu').state_dict()
         self.main_q_network.to(device)
+        loss_mean = np.array(loss_list).mean()
 
-        return current_weight, index_all, td_error_all
+        return current_weight, index_all, td_error_all, loss_mean
 
     def update_target_q_network(self) -> None:
         self.target_q_network.load_state_dict(self.main_q_network.state_dict())
@@ -139,18 +143,19 @@ def main(num_envs: int) -> None:
     envs = [Environment.remote(pid=i, gamma=args.gamma, advanced_step=args.advanced, epsilon=epsilons[i], local_cycle=args.local_cycle, n_frame=args.n_frame) for i in range(num_envs)]
     action_space = envs[0].get_action_space.remote()
 
-    replay_memory = Experiment_Replay(capacity=args.capacity, td_epsilon=args.td_epsilon)    
+    replay_memory = Experiment_Replay(capacity=args.capacity, td_epsilon=args.td_epsilon)
 
-    learner = Learner.remote(action_space=action_space, batch_size=args.batch, gamma=args.gamma, advanced_step=args.advanced, target_update=args.target_update)
+    learner = Learner.remote(action_space=action_space, gamma=args.gamma, advanced_step=args.advanced, target_update=args.target_update)
     
     current_weights = ray.get(learner.define_network.remote())
     if args.save:
         torch.save(current_weights, f'{model_path}/model_step_{0:03}.pth')
     current_weights = ray.put(current_weights)
     tester = Tester.remote(action_space=action_space, n_frame=args.n_frame)
+    num_update = 0
     if args.graph:
         writer = SummaryWriter(log_dir="./logs2/run_{}".format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")))
-    num_update = 0
+        writer.add_scalar(f"Replay_Memory", len(replay_memory), num_update)   
     wip_env = [env.rollout.remote(current_weights) for env in envs]
 
     for _ in tqdm(range(args.min_replay // args.local_cycle)):
@@ -158,7 +163,7 @@ def main(num_envs: int) -> None:
         td_error, transition, pid = ray.get(finish_env[0])
         replay_memory.push(td_error, transition)
         wip_env.extend([envs[pid].rollout.remote(current_weights)])
-
+    
     minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
     wip_learner = learner.update.remote(minibatch)
     minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
@@ -182,9 +187,11 @@ def main(num_envs: int) -> None:
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
 
             if finished_learner : #and actor_cycle >= 80:
-                current_weights, index, td_error = ray.get(finished_learner[0])
+                current_weights, index, td_error, loss_mean = ray.get(finished_learner[0])
                 if args.save and num_update % 500 == 0: 
                     torch.save(current_weights, f'{model_path}/model_step_{num_update//args.interval:03}.pth')
+                if args.graph:
+                    writer.add_scalar(f"loss_mean", loss_mean, num_update)
                 current_weights = ray.put(current_weights)
                 wip_learner = learner.update.remote(minibatch)
                 replay_memory.update_priority(index, td_error)
@@ -199,9 +206,11 @@ def main(num_envs: int) -> None:
 
                #test is faster than interval
                 if num_update % args.interval == 0:
-                    test_score, step = ray.get(wip_tester)
+                    test_score, episode, step = ray.get(wip_tester)
                     if args.graph:
-                        writer.add_scalar(f"Ape-X_Breakout.png", test_score, step)
+                        writer.add_scalar(f"Ape-X_Breakout", test_score, step)
+                        writer.add_scalar(f"Test_Episode", episode, step)
+                        writer.add_scalar(f"Replay_Memory", len(replay_memory), num_update)
                     print('\n' + '-' * 80)
                     print(f"Test End   : {num_update//args.interval - 1} | Number of Updates : {num_update} | Test Score : {test_score}")
                     #Test End↑　Test Start↓
@@ -210,12 +219,13 @@ def main(num_envs: int) -> None:
                     print('-'*80)
     
     ray.get(wip_env)
-    test_score, step = ray.get(wip_tester)
+    test_score,episode, step = ray.get(wip_tester)
     print('\n' + '-' * 80)
     print(f"Test End   : {num_update//args.interval} | Number of Updates : {num_update} | Test Score : {test_score}")
     print('-' * 80)
     if args.graph:
-        writer.add_scalar(f"Ape-X_Breakout.png", test_score, step)
+        writer.add_scalar(f"Ape-X_Breakout", test_score, step)
+        writer.add_scalar(f"Test_Episode", episode, step)
         writer.close()
     ray.shutdown()
     print("END")

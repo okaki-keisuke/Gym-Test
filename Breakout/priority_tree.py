@@ -47,7 +47,8 @@ class Experiment_Replay:
         return samples_index, weights, experience
 
     def __len__(self) -> int:
-        return len(self.memory)
+        
+        return len(self.memory) if self.is_full else self.index
 
 if __name__=="__main__":
     pass
