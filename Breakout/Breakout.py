@@ -1,4 +1,3 @@
-from collections import deque
 from typing import Tuple
 import numpy as np
 import torch
@@ -136,18 +135,24 @@ def main(num_envs: int) -> None:
     #epsilons = np.linspace(0.01, args.epsilon, num_envs)
     epsilons = [args.epsilon ** (1 + args.eps_alpha * i / (num_envs - 1)) for i in range(num_envs)]
     epsilons = [max(0.01, eps) for eps in epsilons]
+
     envs = [Environment.remote(pid=i, gamma=args.gamma, advanced_step=args.advanced, epsilon=epsilons[i], local_cycle=args.local_cycle, n_frame=args.n_frame) for i in range(num_envs)]
-    replay_memory = Experiment_Replay(capacity=args.capacity, td_epsilon=args.td_epsilon)
     action_space = envs[0].get_action_space.remote()
+
+    replay_memory = Experiment_Replay(capacity=args.capacity, td_epsilon=args.td_epsilon)    
+
     learner = Learner.remote(action_space=action_space, batch_size=args.batch, gamma=args.gamma, advanced_step=args.advanced, target_update=args.target_update)
+    
     current_weights = ray.get(learner.define_network.remote())
-    if args.save: torch.save(current_weights, f'{model_path}/model_step_{0:03}.pth')
+    if args.save:
+        torch.save(current_weights, f'{model_path}/model_step_{0:03}.pth')
     current_weights = ray.put(current_weights)
     tester = Tester.remote(action_space=action_space, n_frame=args.n_frame)
-    if args.graph: writer = SummaryWriter(log_dir="./logs2/run_{}".format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")))
+    if args.graph:
+        writer = SummaryWriter(log_dir="./logs2/run_{}".format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")))
     num_update = 0
-
     wip_env = [env.rollout.remote(current_weights) for env in envs]
+
     for _ in tqdm(range(args.min_replay // args.local_cycle)):
         finish_env, wip_env = ray.wait(wip_env, num_returns=1)
         td_error, transition, pid = ray.get(finish_env[0])
@@ -158,6 +163,7 @@ def main(num_envs: int) -> None:
     wip_learner = learner.update.remote(minibatch)
     minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
     wip_tester = tester.test_play.remote(current_weights, num_update)
+
     actor_cycle = 0
     sum = actor_cycle
     print('-'*80)
@@ -174,6 +180,7 @@ def main(num_envs: int) -> None:
             wip_env.extend([envs[pid].rollout.remote(current_weights)])
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
+
             if finished_learner : #and actor_cycle >= 80:
                 current_weights, index, td_error = ray.get(finished_learner[0])
                 if args.save and num_update % 500 == 0: 
@@ -181,7 +188,7 @@ def main(num_envs: int) -> None:
                 current_weights = ray.put(current_weights)
                 wip_learner = learner.update.remote(minibatch)
                 replay_memory.update_priority(index, td_error)
-                minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(16)]
+                minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
                 
                 #print(f"Actorが遷移をReplayに渡した回数:{actor_cycle}")
 
