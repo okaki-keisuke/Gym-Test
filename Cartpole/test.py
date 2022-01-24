@@ -2,7 +2,7 @@ import numpy as np
 import gym
 import torch
 from model import Net
-from .Cartpole import ENV
+from Cartpole import ENV
 import argparse
 import matplotlib.pyplot as plt
 import seaborn as sns

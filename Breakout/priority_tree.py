@@ -27,7 +27,7 @@ class Experiment_Replay:
     def update_priority(self, sampled_index: list, td_errors: list) -> None:
         assert len(sampled_index) == len(td_errors)
         for idx, td_error in zip(sampled_index, td_errors):
-            priority = (np.abs(td_error) + 0.001) ** self.alpha
+            priority = (np.abs(td_error) + self.td_epsilon) ** self.alpha
             self.priority[idx] = priority ** self.alpha
 
     def sample(self, batch_size: int) -> list:

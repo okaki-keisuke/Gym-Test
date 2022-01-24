@@ -13,7 +13,7 @@ from torch.optim import lr_scheduler
 from torch.nn import parameter, utils
 
 from priority_tree import Experiment_Replay
-from Actor import Environment, ENV, Transition, Tester
+from Actor import Environment, Transition, Tester
 from model import Net
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -26,7 +26,7 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--graph", action="store_true", help="show Graph")
     parser.add_argument("--save", action="store_true",help="save parameter")
     parser.add_argument("--gamma", default=0.99, type=float, help="learning rate")
-    parser.add_argument("--batch", default=128, type=int, help="batch size")
+    parser.add_argument("--batch", default=512, type=int, help="batch size")
     parser.add_argument("--capacity", default=2 ** 18, type=int, help="Replay memory size (2 ** x)")
     parser.add_argument("--epsilon", default=0.5, type=float, help="exploration rate")
     parser.add_argument("--eps_alpha", default=7, type=int, help="epsilon alpha")
@@ -34,10 +34,10 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--td_epsilon", default=0.001, type=float, help="td error epsilon")
     parser.add_argument("--interval", default=10, type=int, help="Test interval")
     parser.add_argument("--update", default=5000, type=int, help="number of update")
-    parser.add_argument("--target_update", default=2400, type=int, help="target q network update interval")
+    parser.add_argument("--target_update", default=2000, type=int, help="target q network update interval")
     parser.add_argument("--min_replay", default=50000, type=int, help="min experience replay data")
     parser.add_argument("--local_cycle", default=100, type=int, help="number of cycle in Local Environment")
-    parser.add_argument("--num_minibatch", default=64, type=int, help="number of minibatch for 1 update")
+    parser.add_argument("--num_minibatch", default=16, type=int, help="number of minibatch for 1 update")
     parser.add_argument("--n_frame", default=4, type=int, help="state frame")
 
     # 結果を受ける
@@ -47,7 +47,9 @@ def arg_get() -> argparse.Namespace:
 
 @ray.remote(num_cpus=1, num_gpus=1)
 class Learner:
+
     def __init__(self, action_space: int, gamma: float, advanced_step: int, target_update: int):
+    
         self.action_space = action_space
         self.gamma = gamma
         self.advanced_step = advanced_step
@@ -57,7 +59,7 @@ class Learner:
         
         #self.optimizer = optim.Adam(self.main_q_network.parameters(), lr=0.001)
         self.optimizer = optim.RMSprop(self.main_q_network.parameters(), lr=0.0025/4, alpha=0.95, momentum=0.0, eps=1.5e-07, centered=True)
-        #self.scheduler = lr_scheduler.StepLR(self.optimizer, 1000, gamma=0.8)
+        self.scheduler = lr_scheduler.StepLR(self.optimizer, 1000, gamma=0.8)
         
         self.update_count = 0
     
@@ -98,10 +100,10 @@ class Learner:
             qvalue = self.main_q_network(state_batch)
             action_onehot = torch.eye(self.action_space)[action_batch].to(device)
             Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
-            td_error = torch.square(Q - TQ)
+            td_error = Q - TQ
 
             self.main_q_network.train()
-            loss = torch.mean(weights * td_error)
+            loss = torch.mean(weights * torch.square(td_error))
             self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
             utils.clip_grad_norm_(self.main_q_network.parameters(), max_norm=40.0, norm_type=2.0)
@@ -166,7 +168,6 @@ def main(num_envs: int) -> None:
     
     minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
     wip_learner = learner.update.remote(minibatch)
-    num_update += 1
     minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
     wip_tester = tester.test_play.remote(current_weights, num_update)
 
@@ -189,7 +190,7 @@ def main(num_envs: int) -> None:
 
             if finished_learner and actor_cycle >= 100:
                 current_weights, index, td_error, loss_mean = ray.get(finished_learner[0])
-                if args.save and num_update % 500 == 0: 
+                if args.save and num_update % 100 == 0: 
                     torch.save(current_weights, f'{model_path}/model_step_{num_update//args.interval:03}.pth')
                 if args.graph:
                     writer.add_scalar(f"loss_mean", loss_mean, num_update)

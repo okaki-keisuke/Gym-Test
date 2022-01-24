@@ -2,28 +2,30 @@ import numpy as np
 import gym
 import torch
 from model import Net
-from Breakout import ENV
-from utils import get_initial_state, input_image
+from Actor import ENV
+from utils import preproccess
 import argparse
 import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
 from tqdm import tqdm
+import collections
 
-model_path = "/home/mukai/params/run_Ape-X_Breakout_2022-01-08_17-53"
+
+model_path = "/home/mukai/params/run_Ape-X_Breakout_2022-01-24_17-23"
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
 parser = argparse.ArgumentParser(description="Test parameter")
 parser.add_argument("--random", action="store_true", help="action randam select")
-parser.add_argument("--model" , type=str, default="000", help="model number")
+parser.add_argument("--model" , type=str, default="120", help="model number")
 args = parser.parse_args()
 
-Model = Net().to(device)
+env = gym.make(ENV)
+Model = Net(env.action_space.n).to(device)
 if not args.random:
     Model.load_state_dict(torch.load(f"{model_path}/model_step_{args.model}.pth"))
 
-env = gym.make(ENV)
 
 def decide_action(state: torch.Tensor) -> int:
     
@@ -42,22 +44,29 @@ if __name__=="__main__":
     sns.set_palette('Set2')
     warnings.filterwarnings('ignore')
     score = []  
+    frames = collections.deque(maxlen=4)
     for episode in tqdm(range(10)):
         total_reward = 0
-        state = env.reset()
-        state = get_initial_state(state)
-        while True:
-            env.render()
+        frame = preproccess(env.reset())
+        for _ in range(4):
+            frames.append(frame)
+        state = torch.FloatTensor(np.stack(frames, axis=0)[np.newaxis, ...]).cuda()
+        done = False
+        step = 0
+        while not done:
+            #env.render()
             action = decide_action(state)
-            next_state, reward, done, info = env.step(action)
+            next_state, reward, done, _ = env.step(action)
             total_reward += reward
-            if done:
+            #print(step, done)
+            if done or step > 1000:
                 score.append(total_reward)
                 break
             else:
-                state = input_image(next_state, state)
-        
-    env.close()
+                frames.append(preproccess(next_state))
+                state = torch.FloatTensor(np.stack(frames, axis=0)[np.newaxis, ...]).cuda()
+                step += 1
+    #env.close()
     plt.figure(figsize=(10,6))
     plt.boxplot(score)
     plt.savefig("test.png")
