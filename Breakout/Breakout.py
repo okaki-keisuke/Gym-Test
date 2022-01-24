@@ -1,19 +1,20 @@
-from asyncore import write
-from typing import Tuple
+import os
+import datetime
 import numpy as np
+import ray
+import argparse
+from tqdm import tqdm
+from typing import Tuple
+
+from torch.utils.tensorboard import SummaryWriter
 import torch
 from torch import optim
 from torch.optim import lr_scheduler
 from torch.nn import parameter, utils
-from torch.utils.tensorboard import SummaryWriter
-import datetime
-import ray
+
 from priority_tree import Experiment_Replay
 from Actor import Environment, ENV, Transition, Tester
 from model import Net
-import argparse
-from tqdm import tqdm
-import os
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 torch.backends.cudnn.benchmark = True # pytorch speed up
@@ -25,7 +26,7 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--graph", action="store_true", help="show Graph")
     parser.add_argument("--save", action="store_true",help="save parameter")
     parser.add_argument("--gamma", default=0.99, type=float, help="learning rate")
-    parser.add_argument("--batch", default=512, type=int, help="batch size")
+    parser.add_argument("--batch", default=128, type=int, help="batch size")
     parser.add_argument("--capacity", default=2 ** 18, type=int, help="Replay memory size (2 ** x)")
     parser.add_argument("--epsilon", default=0.5, type=float, help="exploration rate")
     parser.add_argument("--eps_alpha", default=7, type=int, help="epsilon alpha")
@@ -36,7 +37,7 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--target_update", default=2400, type=int, help="target q network update interval")
     parser.add_argument("--min_replay", default=50000, type=int, help="min experience replay data")
     parser.add_argument("--local_cycle", default=100, type=int, help="number of cycle in Local Environment")
-    parser.add_argument("--num_minibatch", default=16, type=int, help="number of minibatch for 1 update")
+    parser.add_argument("--num_minibatch", default=64, type=int, help="number of minibatch for 1 update")
     parser.add_argument("--n_frame", default=4, type=int, help="state frame")
 
     # 結果を受ける
@@ -56,7 +57,7 @@ class Learner:
         
         #self.optimizer = optim.Adam(self.main_q_network.parameters(), lr=0.001)
         self.optimizer = optim.RMSprop(self.main_q_network.parameters(), lr=0.0025/4, alpha=0.95, momentum=0.0, eps=1.5e-07, centered=True)
-        self.scheduler = lr_scheduler.StepLR(self.optimizer, 1000, gamma=0.8)
+        #self.scheduler = lr_scheduler.StepLR(self.optimizer, 1000, gamma=0.8)
         
         self.update_count = 0
     
@@ -133,7 +134,7 @@ def main(num_envs: int) -> None:
         os.makedirs('/home/mukai/params/run_Ape-X_Breakout_{}'.format(date, exist_ok=True))
         model_path = '/home/mukai/params/run_Ape-X_Breakout_{}'.format(date)
 
-    ray.init(num_gpus=1)
+    ray.init(local_mode=False)
     print("START")
     #epsilons = np.linspace(0.01, args.epsilon, num_envs)
     epsilons = [args.epsilon ** (1 + args.eps_alpha * i / (num_envs - 1)) for i in range(num_envs)]
@@ -165,6 +166,7 @@ def main(num_envs: int) -> None:
     
     minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
     wip_learner = learner.update.remote(minibatch)
+    num_update += 1
     minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
     wip_tester = tester.test_play.remote(current_weights, num_update)
 
