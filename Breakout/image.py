@@ -1,5 +1,5 @@
 import torch
-from utils import get_initial_state, input_image, initial_state, input_state, preproccess
+from utils import get_initial_state, input_image, initial_state, input_states, preproccess
 import gym
 from Breakout import ENV
 import time
@@ -47,7 +47,7 @@ for _ in range(4):
     state_list.append(state)
 
 start = time.time()
-state_pil = input_state(state) 
+state_pil = preproccess(state) 
 print("=====input_state=========")
 print(state_pil.shape)
 

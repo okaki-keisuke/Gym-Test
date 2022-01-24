@@ -58,3 +58,6 @@ class Net(nn.Module):
             action = np.random.choice(self.action_space)
         
         return action
+
+if __name__=="__main__":
+    pass

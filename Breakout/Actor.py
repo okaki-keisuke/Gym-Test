@@ -111,25 +111,26 @@ class Environment:
     
     def init_prior(self, transition: list) -> list:
 
-        qnet_script = torch.jit.script(self.q_network.eval())
-        
-        batch = Transition(*zip(*transition))
-        state = torch.cat(batch.state)
-        action = torch.cat(batch.action)
-        next_state = torch.cat(batch.next_state)
-        reward = torch.cat(batch.reward)
-        done = torch.cat(batch.done)
-        
-        qvalue = qnet_script(state)
-        action_onehot = torch.eye(self.action_space)[action]
-        Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
-        next_qvalue = qnet_script(next_state)
-        next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
-        next_action_onehot = torch.eye(self.action_space)[next_action]
-        next_maxQ = torch.sum(next_qvalue * next_action_onehot, dim=1, keepdim=True)
-        TQ = (reward + self.gamma ** self.advanced_step * (1 - done.int().unsqueeze(1)) * next_maxQ).squeeze()
-        td_error = torch.square(Q - TQ)
-        td_errors = td_error.detach().numpy().flatten()
+        self.q_network.eval()
+        with torch.no_grad():
+            
+            batch = Transition(*zip(*transition))
+            state = torch.cat(batch.state)
+            action = torch.cat(batch.action)
+            next_state = torch.cat(batch.next_state)
+            reward = torch.cat(batch.reward)
+            done = torch.cat(batch.done)
+            
+            qvalue = self.q_network(state)
+            action_onehot = torch.eye(self.action_space)[action]
+            Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
+            next_qvalue = self.q_network(next_state)
+            next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
+            next_action_onehot = torch.eye(self.action_space)[next_action]
+            next_maxQ = torch.sum(next_qvalue * next_action_onehot, dim=1, keepdim=True)
+            TQ = (reward + self.gamma ** self.advanced_step * (1 - done.int().unsqueeze(1)) * next_maxQ).squeeze()
+            td_error = torch.square(Q - TQ)
+            td_errors = td_error.detach().numpy().flatten()
 
         return td_errors, transition
     
@@ -170,3 +171,6 @@ class Tester:
             state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
         
         return total_reward, step
+
+if __name__=="__main__":
+    pass

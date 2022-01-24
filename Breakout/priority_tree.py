@@ -33,11 +33,7 @@ class Tree:
     
     def sample(self):
         z = random.uniform(0, self.sum())
-        try:
-            assert 0 <= z <= self.sum(), z 
-        except AssertionError:
-            print(z)
-            import pdb; pdb.set_trace()
+        assert 0 <= z <= self.sum(), z 
 
         current_idx = 1
         while current_idx < self.capacity:
@@ -102,3 +98,6 @@ class Experiment_Replay:
 
     def __len__(self) -> int:
         return len(self.memory)
+
+if __name__=="__main__":
+    pass
