@@ -159,9 +159,7 @@ class Tester:
         self.env_name = ENV
         self.env = gym.make(self.env_name)
         self.n_frame = n_frame
-        self.frames = collections.deque(maxlen=self.n_frame)
-
-
+        self.frames = deque(maxlen=self.n_frame)
     
     def test_play(self, current_weights: parameter, step: int) -> list:
         self.q_network.load_state_dict(current_weights)
@@ -174,12 +172,12 @@ class Tester:
         done = False
         while not done:
             action = self.q_network.get_action(state=state, epsilon=self.epsilon)
-            new_state, reward, done, _ = self.env.step(action)
+            new_frame, reward, done, _ = self.env.step(action)
             total_reward += reward
             episode += 1
             if episode > 1000 and total_reward < 10:
                 break
-            self.frames.append(preproccess(new_state))
+            self.frames.append(preproccess(new_frame))
             state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
         
         return total_reward, episode, step

@@ -4,6 +4,7 @@ from utils import Tree
 class Experiment_Replay:
 
     def __init__(self, capacity: int, td_epsilon: float):
+
         self.capacity = capacity
         self.priority = Tree(self.capacity)
         self.memory = [None] * self.capacity
@@ -14,7 +15,9 @@ class Experiment_Replay:
         self.td_epsilon = td_epsilon
 
     def push(self, td_errors: list, transitions: list) -> None:
+
         assert len(td_errors) == len(transitions)
+
         priorities = (np.abs(td_errors) + self.td_epsilon) ** self.alpha
         for priority, transition in zip(priorities, transitions):
             self.memory[self.index] = transition
@@ -25,10 +28,12 @@ class Experiment_Replay:
                 self.is_full = True
 
     def update_priority(self, sampled_index: list, td_errors: list) -> None:
+        
         assert len(sampled_index) == len(td_errors)
+
         for idx, td_error in zip(sampled_index, td_errors):
             priority = (np.abs(td_error) + self.td_epsilon) ** self.alpha
-            self.priority[idx] = priority ** self.alpha
+            self.priority[idx] = priority
 
     def sample(self, batch_size: int) -> list:
         #index

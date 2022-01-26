@@ -12,13 +12,13 @@ from tqdm import tqdm
 import collections
 
 
-model_path = "/home/mukai/params/run_Ape-X_Breakout_2022-01-24_17-23"
+model_path = "/home/mukai/params/run_Ape-X_Breakout_2022-01-26_12-34"
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
 parser = argparse.ArgumentParser(description="Test parameter")
 parser.add_argument("--random", action="store_true", help="action randam select")
-parser.add_argument("--model" , type=str, default="120", help="model number")
+parser.add_argument("--model" , type=str, default="230", help="model number")
 args = parser.parse_args()
 
 env = gym.make(ENV)
@@ -54,7 +54,7 @@ if __name__=="__main__":
         done = False
         step = 0
         while not done:
-            #env.render()
+            env.render()
             action = decide_action(state)
             next_state, reward, done, _ = env.step(action)
             total_reward += reward
@@ -66,7 +66,7 @@ if __name__=="__main__":
                 frames.append(preproccess(next_state))
                 state = torch.FloatTensor(np.stack(frames, axis=0)[np.newaxis, ...]).cuda()
                 step += 1
-    #env.close()
+    env.close()
     plt.figure(figsize=(10,6))
     plt.boxplot(score)
     plt.savefig("test.png")

@@ -53,8 +53,8 @@ class Learner:
         self.action_space = action_space
         self.gamma = gamma
         self.advanced_step = advanced_step
-        self.main_q_network = Net(self.action_space).to(device)
-        self.target_q_network = Net(self.action_space).to(device)
+        self.main_q_network = Net(self.action_space).cuda()
+        self.target_q_network = Net(self.action_space).cuda()
         self.target_update = target_update
         
         #self.optimizer = optim.Adam(self.main_q_network.parameters(), lr=0.001)
@@ -64,8 +64,8 @@ class Learner:
         self.update_count = 0
     
     def define_network(self) -> parameter:
-        current_weights = self.main_q_network.to('cpu').state_dict()
-        self.main_q_network.to(device)
+        current_weights = self.main_q_network.cpu().state_dict()
+        self.main_q_network.cuda()
         self.update_target_q_network()  
         return current_weights
 
@@ -78,33 +78,32 @@ class Learner:
         for (index, weight, transition) in minibatch:
 
             batch = Transition(*zip(*transition))
-            state_batch = torch.cat(batch.state).to(device)
-            action_batch = torch.cat(batch.action).to(device)
-            reward_batch = torch.cat(batch.reward).to(device)
-            next_state_batch = torch.cat(batch.next_state).to(device)
-            done_batch = torch.cat(batch.done).to(device)
-            weights = torch.from_numpy(np.atleast_2d(weight).astype(np.float32)).clone().to(device)
+            state_batch = torch.cat(batch.state).cuda()
+            action_batch = torch.cat(batch.action).cuda()
+            reward_batch = torch.cat(batch.reward).cuda()
+            next_state_batch = torch.cat(batch.next_state).cuda()
+            done_batch = torch.cat(batch.done).cuda()
+            weights = torch.from_numpy(np.atleast_2d(weight).astype(np.float32)).clone().cuda()
 
             self.main_q_network.eval()
             self.target_q_network.eval()
 
             #TDerror
-            with torch.no_grad():
-                next_qvalue = self.main_q_network(next_state_batch)
-                next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
-                next_action_onehot = torch.eye(self.action_space)[next_action].to(device)
-                target_qvalue = self.target_q_network(next_state_batch)
-                next_maxQ = torch.sum(target_qvalue * next_action_onehot, dim=1, keepdim=True)
-                TQ = (reward_batch + self.gamma ** self.advanced_step * (1 - done_batch.int().unsqueeze(1)) * next_maxQ).squeeze()
+            next_qvalue = self.main_q_network(next_state_batch)
+            next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
+            next_action_onehot = torch.eye(self.action_space)[next_action].cuda()
+            target_qvalue = self.target_q_network(next_state_batch)
+            next_maxQ = torch.sum(target_qvalue * next_action_onehot, dim=1, keepdim=True)
+            TQ = (reward_batch + self.gamma ** self.advanced_step * (1 - done_batch.int().unsqueeze(1)) * next_maxQ).squeeze()
             #Q(s,a)-value
             qvalue = self.main_q_network(state_batch)
-            action_onehot = torch.eye(self.action_space)[action_batch].to(device)
+            action_onehot = torch.eye(self.action_space)[action_batch].cuda()
             Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
-            td_error = Q - TQ
+            td_error = torch.square(Q - TQ)
 
             self.main_q_network.train()
-            loss = torch.mean(weights * torch.square(td_error))
-            self.optimizer.zero_grad()
+            loss = torch.mean(weights * td_error)
+            self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
             utils.clip_grad_norm_(self.main_q_network.parameters(), max_norm=40.0, norm_type=2.0)
             self.optimizer.step()
@@ -118,8 +117,8 @@ class Learner:
                 self.update_target_q_network()
         
         #self.scheduler.step()
-        current_weight = self.main_q_network.to('cpu').state_dict()
-        self.main_q_network.to(device)
+        current_weight = self.main_q_network.cpu().state_dict()
+        self.main_q_network.cuda()
         loss_mean = np.array(loss_list).mean()
 
         return current_weight, index_all, td_error_all, loss_mean
