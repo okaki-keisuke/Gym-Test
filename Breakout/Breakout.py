@@ -17,7 +17,6 @@ from Actor import Environment, Transition, Tester
 from model import Net
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-torch.backends.cudnn.benchmark = True # pytorch speed up
 
 def arg_get() -> argparse.Namespace:
     
@@ -212,7 +211,7 @@ def main(num_envs: int) -> None:
                         writer.add_scalar(f"Test_Episode", episode, step)
                         writer.add_scalar(f"Replay_Memory", len(replay_memory), num_update)
                     print('\n' + '-' * 80)
-                    print(f"Test End   : {num_update//args.interval - 1} | Number of Updates : {num_update} | Test Score : {test_score}")
+                    print(f"Test End   : {num_update//args.interval - 1} | Test Episode : {episode} | Test Score : {test_score}")
                     #Test End↑　Test Start↓
                     wip_tester = tester.test_play.remote(current_weights, num_update)
                     print(f"Test Start : {num_update//args.interval} | Number of Updates : {num_update} | Number of Push : {sum}")
@@ -221,7 +220,7 @@ def main(num_envs: int) -> None:
     ray.get(wip_env)
     test_score,episode, step = ray.get(wip_tester)
     print('\n' + '-' * 80)
-    print(f"Test End   : {num_update//args.interval} | Number of Updates : {num_update} | Test Score : {test_score}")
+    print(f"Test End   : {num_update//args.interval} | Test Episode : {episode} | Test Score : {test_score}")
     print('-' * 80)
     if args.graph:
         writer.add_scalar(f"Ape-X_Breakout", test_score, step)

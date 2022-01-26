@@ -22,18 +22,13 @@ class Agent:
         self.store_state = []
         self.gamma = gamma
 
-    def state_storage(self, statorch: torch.Tensor) -> torch.Tensor:
+    def reward_sum(self, done: bool) -> None:
         
-        self.state.append(statorch)
-        
-
-    def reward_storage(self, reward: np) -> None:
-        self.store_reward.append(reward)
         if len(self.store_reward) == self.multi_step + 1:
             del self.store_reward[0]
             self.reward_nstep = 0
             for step in range(self.multi_step):
-                self.reward_nstep += self.gamma ** step * self.store_reward[step]
+                self.reward_nstep += self.gamma ** step * (1 - done) * self.store_reward[step]
         
     def data_full(self) -> bool:
         if len(self.state) == self.multi_step:
@@ -85,11 +80,12 @@ class Environment:
             self.frames.append(preproccess(next_frame))
             next_state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
             self.episode_reward += reward
-            self.agent.reward_storage(reward)
-            self.agent.state_storage(next_state)
+            self.agent.store_reward.append(reward)
+            self.agent.store_state.append(next_state)
             state = next_state
             if self.agent.data_full():
                 if self.lives != info["ale.lives"]:
+                    self.agent.reward_sum(True)
                     transition = Transition(self.agent.state.popleft(),
                                             torch.LongTensor([action]),
                                             next_state, 
@@ -97,6 +93,7 @@ class Environment:
                                             torch.BoolTensor([True]))
                     self.lives = info["ale.lives"]
                 else:
+                    self.agent.reward_sum(done)
                     transition = Transition(self.agent.state.popleft(),
                                             torch.LongTensor([action]),
                                             next_state, 
@@ -155,7 +152,7 @@ class Tester:
 
     def __init__(self, action_space: int, n_frame: int):
         self.q_network = Net(action_space)
-        self.epsilon = 0.01
+        self.epsilon = 0.05
         self.env_name = ENV
         self.env = gym.make(self.env_name)
         self.n_frame = n_frame
