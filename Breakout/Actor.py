@@ -1,7 +1,6 @@
 from importlib_metadata import collections
 import torch
 from torch.nn import parameter
-import copy
 import ray
 import gym
 from collections import deque, namedtuple
@@ -17,7 +16,7 @@ Transition = namedtuple(
 class Agent:
     def __init__(self, advanced_step: int, gamma: float):
         self.multi_step = advanced_step
-        self.state = collections.deque(maxlen=self.multi_step)
+        self.state = deque(maxlen=self.multi_step)
         self.store_reward = []
         self.reward_nstep = 0
         self.store_state = []
@@ -60,7 +59,7 @@ class Environment:
         self.epsilon = epsilon
         self.gamma = gamma
         self.n_frame = n_frame
-        self.frames = collections.deque(maxlen=self.n_frame)
+        self.frames = deque(maxlen=self.n_frame)
         self.advanced_step = advanced_step
         self.agent = Agent(advanced_step=self.advanced_step, gamma=self.gamma)
         state = preproccess(self.env.reset())
@@ -69,6 +68,7 @@ class Environment:
         self.agent.state_storage(torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...]))
         self.episode_reward = 0
         self.local_cycle = local_cycle
+        self.lives = 5
     
     def rollout(self, weights: parameter) -> list:
 
@@ -81,30 +81,33 @@ class Environment:
         for _ in range(self.local_cycle):
             
             action = self.q_network.get_action(state, epsilon=self.epsilon)
-            next_frame, reward, done, _ = self.env.step(action)
+            next_frame, reward, done, info = self.env.step(action)
             self.frames.append(preproccess(next_frame))
             next_state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
             self.episode_reward += reward
             self.agent.reward_storage(reward)
+            self.agent.state_storage(next_state)
+            state = next_state
             if self.agent.data_full():
-                transition = Transition(self.agent.state.popleft(),
-                                        torch.LongTensor([action]),
-                                        next_state, 
-                                        torch.FloatTensor([[self.agent.reward_nstep]]),
-                                        torch.BoolTensor([done])
-                                        )
+                if self.lives != info["ale.lives"]:
+                    transition = Transition(self.agent.state.popleft(),
+                                            torch.LongTensor([action]),
+                                            next_state, 
+                                            torch.FloatTensor([[self.agent.reward_nstep]]),
+                                            torch.BoolTensor([True]))
+                    self.lives = info["ale.lives"]
+                else:
+                    transition = Transition(self.agent.state.popleft(),
+                                            torch.LongTensor([action]),
+                                            next_state, 
+                                            torch.FloatTensor([[self.agent.reward_nstep]]),
+                                            torch.BoolTensor([done]))
                 buffer.append(transition)
 
             if done:
                 self.agent.reset()
-                state = preproccess(self.env.reset())
-                for _ in range(self.n_frame):
-                    self.frames.append(state)
-                self.agent.state_storage(torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...]))
-                self.episode_reward = 0
+                self.env_reset()
             
-            self.agent.state_storage(next_state)
-            state = next_state
         td_error , transitions = self.init_prior(buffer)
 
         return td_error, transitions, self.pid
@@ -136,6 +139,16 @@ class Environment:
     def get_action_space(self) -> int:
         
         return self.action_space
+    
+    def env_reset(self) -> None:
+
+        state = preproccess(self.env.reset())
+        for _ in range(self.n_frame):
+            self.frames.append(state)
+        self.agent.state_storage(torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...]))
+        self.episode_reward = 0
+        self.lives = 5
+
 
 @ray.remote
 class Tester:

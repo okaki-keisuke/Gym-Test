@@ -34,7 +34,7 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--td_epsilon", default=0.001, type=float, help="td error epsilon")
     parser.add_argument("--interval", default=10, type=int, help="Test interval")
     parser.add_argument("--update", default=5000, type=int, help="number of update")
-    parser.add_argument("--target_update", default=2000, type=int, help="target q network update interval")
+    parser.add_argument("--target_update", default=2400, type=int, help="target q network update interval")
     parser.add_argument("--min_replay", default=50000, type=int, help="min experience replay data")
     parser.add_argument("--local_cycle", default=100, type=int, help="number of cycle in Local Environment")
     parser.add_argument("--num_minibatch", default=16, type=int, help="number of minibatch for 1 update")
@@ -103,8 +103,8 @@ class Learner:
             td_error = Q - TQ
 
             self.main_q_network.train()
-            loss = torch.mean(weights * torch.square(td_error))
-            self.optimizer.zero_grad(set_to_none=True)
+            loss = torch.mean(weights * torch.square(td_error) / 2)
+            self.optimizer.zero_grad()
             loss.backward()
             utils.clip_grad_norm_(self.main_q_network.parameters(), max_norm=40.0, norm_type=2.0)
             self.optimizer.step()
@@ -141,7 +141,6 @@ def main(num_envs: int) -> None:
     #epsilons = np.linspace(0.01, args.epsilon, num_envs)
     epsilons = [args.epsilon ** (1 + args.eps_alpha * i / (num_envs - 1)) for i in range(num_envs)]
     epsilons = [max(0.01, eps) for eps in epsilons]
-
     envs = [Environment.remote(pid=i, gamma=args.gamma, advanced_step=args.advanced, epsilon=epsilons[i], local_cycle=args.local_cycle, n_frame=args.n_frame) for i in range(num_envs)]
     action_space = envs[0].get_action_space.remote()
 
