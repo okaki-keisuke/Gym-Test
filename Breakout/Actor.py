@@ -19,7 +19,6 @@ class Agent:
         self.state = deque(maxlen=self.multi_step)
         self.store_reward = []
         self.reward_nstep = 0
-        self.store_state = []
         self.gamma = gamma
 
     def reward_sum(self, done: bool) -> None:
@@ -39,7 +38,6 @@ class Agent:
     def reset(self):
         self.state.clear()
         self.store_reward = []
-        self.store_state = []
         self.reward_nstep = 0
 
 
@@ -60,7 +58,7 @@ class Environment:
         state = preproccess(self.env.reset())
         for _ in range(self.n_frame):
             self.frames.append(state)
-        self.agent.state_storage(torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...]))
+        self.agent.state.append(torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...]))
         self.episode_reward = 0
         self.local_cycle = local_cycle
         self.lives = 5
@@ -81,7 +79,7 @@ class Environment:
             next_state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
             self.episode_reward += reward
             self.agent.store_reward.append(reward)
-            self.agent.store_state.append(next_state)
+            self.agent.state.append(next_state)
             state = next_state
             if self.agent.data_full():
                 if self.lives != info["ale.lives"]:
@@ -142,7 +140,7 @@ class Environment:
         state = preproccess(self.env.reset())
         for _ in range(self.n_frame):
             self.frames.append(state)
-        self.agent.state_storage(torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...]))
+        self.agent.state.append(torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...]))
         self.episode_reward = 0
         self.lives = 5
 
