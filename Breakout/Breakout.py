@@ -103,7 +103,7 @@ class Learner:
             td_error = Q - TQ
 
             self.main_q_network.train()
-            loss = torch.mean(weights * torch.square(td_error) / 2)
+            loss = torch.mean(weights * torch.square(td_error))
             self.optimizer.zero_grad()
             loss.backward()
             utils.clip_grad_norm_(self.main_q_network.parameters(), max_norm=40.0, norm_type=2.0)
