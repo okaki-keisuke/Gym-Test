@@ -18,7 +18,7 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 parser = argparse.ArgumentParser(description="Test parameter")
 parser.add_argument("--random", action="store_true", help="action randam select")
-parser.add_argument("--model" , type=str, default="230", help="model number")
+parser.add_argument("--model" , type=str, default="360", help="model number")
 args = parser.parse_args()
 
 env = gym.make(ENV)

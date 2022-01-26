@@ -190,7 +190,7 @@ def main(num_envs: int) -> None:
                 if args.save and num_update % 100 == 0: 
                     torch.save(current_weights, f'{model_path}/model_step_{num_update//args.interval:03}.pth')
                 if args.graph:
-                    writer.add_scalar(f"loss_mean", loss_mean, num_update)
+                    writer.add_scalar(f"Learner_Loss", loss_mean, num_update)
                 current_weights = ray.put(current_weights)
                 wip_learner = learner.update.remote(minibatch)
                 replay_memory.update_priority(index, td_error)
