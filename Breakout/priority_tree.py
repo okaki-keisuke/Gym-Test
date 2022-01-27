@@ -32,15 +32,15 @@ class Experiment_Replay:
         assert len(sampled_index) == len(td_errors)
 
         for idx, td_error in zip(sampled_index, td_errors):
-            priority = (np.abs(td_error) + self.td_epsilon) ** self.alpha
-            self.priority[idx] = priority
+            priority = (abs(td_error) + self.td_epsilon) ** self.alpha
+            self.priority[idx] = priority ** self.alpha
 
     def sample(self, batch_size: int) -> list:
         #index
         samples_index = [self.priority.sample() for _ in range(batch_size)]
         #weight
         weights = []
-        current_size = len(self.memory) if self.is_full else self.index
+        current_size = len(self.memory)
         for idx in samples_index:
             prob = self.priority[idx] / self.priority.sum()
             weight = (prob * current_size) ** (-self.beta)

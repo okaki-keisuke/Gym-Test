@@ -62,6 +62,7 @@ class Environment:
         self.episode_reward = 0
         self.local_cycle = local_cycle
         self.lives = 5
+        self.episode = 0
     
     def rollout(self, weights: parameter) -> list:
 
@@ -99,7 +100,7 @@ class Environment:
                                             torch.BoolTensor([done]))
                 buffer.append(transition)
 
-            if done:
+            if done or (self.episode > 5000 and self.episode_reward < 10):
                 self.agent.reset()
                 self.env_reset()
             
@@ -143,6 +144,7 @@ class Environment:
         self.agent.state.append(torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...]))
         self.episode_reward = 0
         self.lives = 5
+        self.episode = 0
 
 
 @ray.remote

@@ -106,9 +106,9 @@ def input_states(state: np, pre_state: torch.Tensor) -> torch.Tensor:
 def preproccess(state: np) ->  np:
     
     state_pil = Image.fromarray(state)
-    state_pil = state_pil.crop((0, 34, 160, 160)).convert("L").resize((INPUT_WIDTH, INPUT_HEIGHT))
+    state_pil = state_pil.convert("L").crop((0, 34, 160, 160)).resize((INPUT_WIDTH, INPUT_HEIGHT))
     state_np = np.array(state_pil) / 255
 
-    return state_np
+    return state_np.astype(np.float32)
 
         

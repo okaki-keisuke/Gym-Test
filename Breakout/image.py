@@ -1,7 +1,7 @@
 import torch
 from utils import get_initial_state, input_image, initial_state, input_states, preproccess
 import gym
-from Breakout import ENV
+from Actor import ENV
 import time
 import numpy as np
 import collections
@@ -50,6 +50,7 @@ start = time.time()
 state_pil = preproccess(state) 
 print("=====input_state=========")
 print(state_pil.shape)
+print(state_pil.dtype)
 
 frame = collections.deque(maxlen=4)
 for _ in range(4):

@@ -26,7 +26,7 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--save", action="store_true",help="save parameter")
     parser.add_argument("--gamma", default=0.99, type=float, help="learning rate")
     parser.add_argument("--batch", default=512, type=int, help="batch size")
-    parser.add_argument("--capacity", default=2 ** 18, type=int, help="Replay memory size (2 ** x)")
+    parser.add_argument("--capacity", default=2 ** 19, type=int, help="Replay memory size (2 ** x)")
     parser.add_argument("--epsilon", default=0.5, type=float, help="exploration rate")
     parser.add_argument("--eps_alpha", default=7, type=int, help="epsilon alpha")
     parser.add_argument("--advanced", default=3, type=int, help="number of advanced step")
