@@ -1,4 +1,3 @@
-from importlib_metadata import collections
 import torch
 from torch.nn import parameter
 import ray
@@ -7,39 +6,63 @@ from collections import deque, namedtuple
 from model import Net
 from utils import preproccess
 import numpy as np
+from dataclasses import dataclass
 
 ENV = "BreakoutDeterministic-v4"
 
 Transition = namedtuple(
     'Transition', ('state', 'action', 'next_state', 'reward', 'done'))
 
-class Agent:
-    def __init__(self, advanced_step: int, gamma: float):
-        self.multi_step = advanced_step
-        self.state = deque(maxlen=self.multi_step)
-        self.store_reward = []
-        self.reward_nstep = 0
+@dataclass
+class Experience:
+    state: torch.Tensor
+    action: int
+    reward: float
+    next_state: torch.Tensor
+    done: bool
+
+class Local_Buffer:
+    def __init__(self, advanced_step: int, gamma: float, reward_clip: bool):
+        self.buffer = []
+        self.n_step = advanced_step
+        self.reward_clip = reward_clip
+        self.temp_buffer = deque(maxlen=self.n_step)
         self.gamma = gamma
-
-    def reward_sum(self, done: bool) -> None:
-        
-        if len(self.store_reward) == self.multi_step + 1:
-            del self.store_reward[0]
-            self.reward_nstep = 0
-            for step in range(self.multi_step):
-                self.reward_nstep += self.gamma ** step * (1 - done) * self.store_reward[step]
-        
-    def data_full(self) -> bool:
-        if len(self.state) == self.multi_step:
-            return True
-        
-        return False
     
-    def reset(self):
-        self.state.clear()
-        self.store_reward = []
-        self.reward_nstep = 0
+    def __len__(self):
 
+        return len(self.buffer)
+    
+    def push(self, transition):
+        '''
+            transition : tuple(state, action, reward, next_state, done)
+        '''
+        self.temp_buffer.append(Experience(*transition))
+        if len(self.temp_buffer) == self.n_step:
+
+            nstep_reward = 0
+            has_done = False
+            for i, onestep_exp in enumerate(self.temp_buffer):
+                reward, done = onestep_exp.reward, onestep_exp.done
+                reward = np.clip(reward, -1, 1) if self.reward_clip else reward
+                nstep_reward += self.gamma ** i * (1 - done) * reward
+                if done:
+                    has_done = True
+                    break
+            
+            nstep_exp = Transition(self.temp_buffer[0].state,
+                                    torch.IntTensor([self.temp_buffer[0].action]),
+                                    self.temp_buffer[-1].next_state,
+                                    torch.FloatTensor([[nstep_reward]]),
+                                    torch.BoolTensor([has_done]))
+            
+            self.buffer.append(nstep_exp)
+        
+    def pull(self):
+        experiences = self.buffer
+        self.buffer = []
+        
+        return experiences
 
 @ray.remote
 class Environment:
@@ -54,11 +77,10 @@ class Environment:
         self.n_frame = n_frame
         self.frames = deque(maxlen=self.n_frame)
         self.advanced_step = advanced_step
-        self.agent = Agent(advanced_step=self.advanced_step, gamma=self.gamma)
+        self.local_buffer = Local_Buffer(advanced_step=self.advanced_step, gamma=self.gamma, reward_clip=False)
         state = preproccess(self.env.reset())
         for _ in range(self.n_frame):
             self.frames.append(state)
-        self.agent.state.append(torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...]))
         self.episode_reward = 0
         self.local_cycle = local_cycle
         self.lives = 5
@@ -79,31 +101,19 @@ class Environment:
             self.frames.append(preproccess(next_frame))
             next_state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
             self.episode_reward += reward
-            self.agent.store_reward.append(reward)
-            self.agent.state.append(next_state)
             state = next_state
-            if self.agent.data_full():
-                if self.lives != info["ale.lives"]:
-                    self.agent.reward_sum(True)
-                    transition = Transition(self.agent.state.popleft(),
-                                            torch.LongTensor([action]),
-                                            next_state, 
-                                            torch.FloatTensor([[self.agent.reward_nstep]]),
-                                            torch.BoolTensor([True]))
-                    self.lives = info["ale.lives"]
-                else:
-                    self.agent.reward_sum(done)
-                    transition = Transition(self.agent.state.popleft(),
-                                            torch.LongTensor([action]),
-                                            next_state, 
-                                            torch.FloatTensor([[self.agent.reward_nstep]]),
-                                            torch.BoolTensor([done]))
-                buffer.append(transition)
+            if self.lives != info["ale.lives"]:
+                transition = Transition(state, action, next_state, reward, True)
+                self.lives = info["ale.lives"]
+            else:
+                transition = Transition(state, action, next_state, reward, done)
+            self.local_buffer.push(transition)
 
-            if done or (self.episode > 5000 and self.episode_reward < 10):
-                self.agent.reset()
+            if done:
                 self.env_reset()
-            
+
+        buffer = self.local_buffer.pull()
+
         td_error , transitions = self.init_prior(buffer)
 
         return td_error, transitions, self.pid
@@ -141,7 +151,6 @@ class Environment:
         state = preproccess(self.env.reset())
         for _ in range(self.n_frame):
             self.frames.append(state)
-        self.agent.state.append(torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...]))
         self.episode_reward = 0
         self.lives = 5
         self.episode = 0
