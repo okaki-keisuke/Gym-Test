@@ -32,7 +32,7 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--advanced", default=3, type=int, help="number of advanced step")
     parser.add_argument("--td_epsilon", default=0.001, type=float, help="td error epsilon")
     parser.add_argument("--interval", default=10, type=int, help="Test interval")
-    parser.add_argument("--update", default=6000, type=int, help="number of update")
+    parser.add_argument("--update", default=5000, type=int, help="number of update")
     parser.add_argument("--target_update", default=2400, type=int, help="target q network update interval")
     parser.add_argument("--min_replay", default=50000, type=int, help="min experience replay data")
     parser.add_argument("--local_cycle", default=100, type=int, help="number of cycle in Local Environment")
