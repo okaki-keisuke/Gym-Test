@@ -12,7 +12,7 @@ from torch import optim
 from torch.optim import lr_scheduler
 from torch.nn import parameter, utils
 
-from priority_tree import Experiment_Replay
+from ReplayMemory import Experiment_Replay
 from Actor import Environment, Transition, Tester
 from model import Net
 

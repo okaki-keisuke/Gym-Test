@@ -17,8 +17,8 @@ Transition = namedtuple(
 class Experience:
     state: torch.Tensor
     action: int
-    reward: float
     next_state: torch.Tensor
+    reward: float
     done: bool
 
 class Local_Buffer:
@@ -35,7 +35,7 @@ class Local_Buffer:
     
     def push(self, transition):
         '''
-            transition : tuple(state, action, reward, next_state, done)
+            transition : tuple(state, action, next_state, reward, done)
         '''
         self.temp_buffer.append(Experience(*transition))
         if len(self.temp_buffer) == self.n_step:
@@ -51,7 +51,7 @@ class Local_Buffer:
                     break
             
             nstep_exp = Transition(self.temp_buffer[0].state,
-                                    torch.IntTensor([self.temp_buffer[0].action]),
+                                    torch.LongTensor([self.temp_buffer[0].action]),
                                     self.temp_buffer[-1].next_state,
                                     torch.FloatTensor([[nstep_reward]]),
                                     torch.BoolTensor([has_done]))
