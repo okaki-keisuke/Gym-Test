@@ -63,6 +63,10 @@ class Local_Buffer:
         self.buffer = []
         
         return experiences
+    
+    def reset(self):
+
+        self.temp_buffer.clear
 
 @ray.remote
 class Environment:
@@ -96,12 +100,13 @@ class Environment:
         state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
         for _ in range(self.local_cycle):
             
+            state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
+            
             action = self.q_network.get_action(state, epsilon=self.epsilon)
             next_frame, reward, done, info = self.env.step(action)
             self.frames.append(preproccess(next_frame))
             next_state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
             self.episode_reward += reward
-            state = next_state
             if self.lives != info["ale.lives"]:
                 transition = Transition(state, action, next_state, reward, True)
                 self.lives = info["ale.lives"]
@@ -111,6 +116,8 @@ class Environment:
 
             if done:
                 self.env_reset()
+                self.local_buffer.reset()
+            
 
         buffer = self.local_buffer.pull()
 
