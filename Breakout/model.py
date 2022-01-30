@@ -49,13 +49,13 @@ class Net(nn.Module):
 
     def get_action(self, state, epsilon):
         
-        self.eval()
         if random.random() > epsilon:
+            self.eval()
             with torch.no_grad():
                 qvalue = self(state)
-                action = qvalue.max(1)[1].view(1, 1).item()
+                action = qvalue.max(1)[1].view(1, 1)
         else:
-            action = np.random.choice(self.action_space)
+            action = torch.LongTensor([[random.randrange(self.action_space)]])
         
         return action
 

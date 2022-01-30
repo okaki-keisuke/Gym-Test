@@ -102,7 +102,7 @@ class Environment:
             
             state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
             
-            action = self.q_network.get_action(state, epsilon=self.epsilon)
+            action = self.q_network.get_action(state, epsilon=self.epsilon).item()
             next_frame, reward, done, info = self.env.step(action)
             self.frames.append(preproccess(next_frame))
             next_state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
@@ -184,7 +184,7 @@ class Tester:
         episode = 0
         done = False
         while not done:
-            action = self.q_network.get_action(state=state, epsilon=self.epsilon)
+            action = self.q_network.get_action(state=state, epsilon=self.epsilon).item()
             new_frame, reward, done, _ = self.env.step(action)
             total_reward += reward
             episode += 1
