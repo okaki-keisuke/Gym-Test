@@ -7,6 +7,8 @@ from model import Net
 from utils import preproccess
 import numpy as np
 from dataclasses import dataclass
+import pickle
+import zlib
 
 ENV = "BreakoutDeterministic-v4"
 
@@ -121,9 +123,11 @@ class Environment:
 
         buffer = self.local_buffer.pull()
 
-        td_error , transitions = self.init_prior(buffer)
+        td_error, transitions = self.init_prior(buffer)
 
-        return td_error, transitions, self.pid
+        experiences = [zlib.compress(pickle.dumps(exp)) for exp in transitions]
+
+        return td_error, experiences, self.pid
     
     def init_prior(self, transition: list) -> list:
 

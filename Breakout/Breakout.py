@@ -5,6 +5,8 @@ import ray
 import argparse
 from tqdm import tqdm
 from typing import Tuple
+import zlib
+import pickle
 
 from torch.utils.tensorboard import SummaryWriter
 import torch
@@ -26,7 +28,7 @@ def arg_get() -> argparse.Namespace:
     parser.add_argument("--save", action="store_true",help="save parameter")
     parser.add_argument("--gamma", default=0.99, type=float, help="learning rate")
     parser.add_argument("--batch", default=512, type=int, help="batch size")
-    parser.add_argument("--capacity", default=2 ** 18, type=int, help="Replay memory size (2 ** x)")
+    parser.add_argument("--capacity", default=2 ** 21, type=int, help="Replay memory size (2 ** x)")
     parser.add_argument("--epsilon", default=0.5, type=float, help="exploration rate")
     parser.add_argument("--eps_alpha", default=7, type=int, help="epsilon alpha")
     parser.add_argument("--advanced", default=3, type=int, help="number of advanced step")
@@ -74,9 +76,11 @@ class Learner:
         td_error_all = []
         loss_list = []
 
-        for (index, weight, transition) in minibatch:
-
-            batch = Transition(*zip(*transition))
+        for (index, weight, experiences) in minibatch:
+            #print(len(experiences))
+            transitions = [pickle.loads(zlib.decompress(exp)) for exp in experiences]
+            #print(len(transitions))
+            batch = Transition(*zip(*transitions))
             state_batch = torch.cat(batch.state).cuda()
             action_batch = torch.cat(batch.action).cuda()
             reward_batch = torch.cat(batch.reward).cuda()
@@ -186,7 +190,7 @@ def main(num_envs: int) -> None:
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
 
-            if finished_learner and actor_cycle >= 150:
+            if finished_learner:
                 current_weights, index, td_error, loss_mean = ray.get(finished_learner[0])
                 if args.save and num_update % 100 == 0: 
                     torch.save(current_weights, f'{model_path}/model_step_{num_update//args.interval:03}.pth')
