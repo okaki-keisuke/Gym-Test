@@ -68,7 +68,7 @@ class Local_Buffer:
     
     def reset(self):
 
-        self.temp_buffer.clear
+        self.temp_buffer.clear()
 
 @ray.remote
 class Environment:
@@ -109,6 +109,7 @@ class Environment:
             self.frames.append(preproccess(next_frame))
             next_state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
             self.episode_reward += reward
+            
             if self.lives != info["ale.lives"]:
                 transition = Transition(state, action, next_state, reward, True)
                 self.lives = info["ale.lives"]

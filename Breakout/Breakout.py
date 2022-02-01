@@ -156,6 +156,7 @@ def main(num_envs: int) -> None:
     current_weights = ray.put(current_weights)
     tester = Tester.remote(action_space=action_space, n_frame=args.n_frame)
     num_update = 0
+    actor_cycle = 0
     wip_env = [env.rollout.remote(current_weights) for env in envs]
 
     for _ in tqdm(range(args.min_replay // args.local_cycle)):
@@ -163,7 +164,8 @@ def main(num_envs: int) -> None:
         td_error, transition, pid = ray.get(finish_env[0])
         replay_memory.push(td_error, transition)
         wip_env.extend([envs[pid].rollout.remote(current_weights)])
-    
+        actor_cycle += 1
+
     if args.graph:
         writer = SummaryWriter(log_dir="./logs2/run_{}".format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")))
         writer.add_scalar(f"Replay_Memory", len(replay_memory), num_update)   
@@ -173,10 +175,9 @@ def main(num_envs: int) -> None:
     minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
     wip_tester = tester.test_play.remote(current_weights, num_update)
 
-    actor_cycle = 0
     sum = actor_cycle
     print('-'*80)
-    print(f"Test Start : {num_update//args.interval} | Number of Updates : {num_update} | Number of Push : {sum}")
+    print(f"Test Start : {num_update//args.interval} | Number of Updates : {num_update} | Number of Push : {actor_cycle}")
     print('-'*80)
     
     with tqdm(total=args.update) as pbar:
@@ -219,7 +220,7 @@ def main(num_envs: int) -> None:
                     print(f"Test End   : {num_update//args.interval - 1} | Test Episode : {episode} | Test Score : {test_score}")
                     #Test End↑　Test Start↓
                     wip_tester = tester.test_play.remote(current_weights, num_update)
-                    print(f"Test Start : {num_update//args.interval} | Number of Updates : {num_update} | Number of Push : {sum}")
+                    print(f"Test Start : {num_update//args.interval} | Number of Updates : {num_update} | Number of Push : {actor_cycle}")
                     print('-'*80)
     
     ray.get(wip_env)
