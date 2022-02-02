@@ -208,7 +208,6 @@ def main(num_envs: int) -> None:
                 pbar.update(1)
                 num_update += 1
                 sum += actor_cycle
-                actor_cycle = 0
 
                #test is faster than interval
                 if num_update % args.interval == 0:
@@ -223,6 +222,7 @@ def main(num_envs: int) -> None:
                     wip_tester = tester.test_play.remote(current_weights, num_update)
                     print(f"Test Start : {num_update//args.interval} | Number of Updates : {num_update} | Number of Push : {actor_cycle}")
                     print('-'*80)
+                    actor_cycle = 0
     
     ray.get(wip_env)
     test_score,episode, step = ray.get(wip_tester)
