@@ -7,6 +7,7 @@ from tqdm import tqdm
 from typing import Tuple
 import zlib
 import pickle
+from concurrent import futures
 
 from torch.utils.tensorboard import SummaryWriter
 import torch
@@ -70,55 +71,51 @@ class Learner:
         self.update_target_q_network()  
         return current_weights
 
-    def update(self, minibatch: Tuple) -> list:
+    def update(self, minibatchs: Tuple) -> list:
         
         index_all = []
         td_error_all = []
         loss_list = []
 
-        for (index, weight, experiences) in minibatch:
-            
-            transitions = [pickle.loads(zlib.decompress(exp)) for exp in experiences]
-            
-            batch = Transition(*zip(*transitions))
-            state_batch = torch.cat(batch.state).cuda()
-            action_batch = torch.cat(batch.action).cuda()
-            reward_batch = torch.cat(batch.reward).cuda()
-            next_state_batch = torch.cat(batch.next_state).cuda()
-            done_batch = torch.cat(batch.done).cuda()
-            weights = torch.from_numpy(np.atleast_2d(weight).astype(np.float32)).clone().cuda()
+        with futures.ThreadPoolExecutor(max_workers=4) as executor:
 
-            self.main_q_network.eval()
-            self.target_q_network.eval()
+            work_in_progresses = [executor.submit(self.prepare_minibatch, compressed) for compressed in minibatchs]
 
-            #TDerror
-            next_qvalue = self.main_q_network(next_state_batch)
-            next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
-            next_action_onehot = torch.eye(self.action_space)[next_action].cuda()
-            target_qvalue = self.target_q_network(next_state_batch)
-            next_maxQ = torch.sum(target_qvalue * next_action_onehot, dim=1, keepdim=True)
-            TQ = (reward_batch + self.gamma ** self.advanced_step * (1 - done_batch.int().unsqueeze(1)) * next_maxQ).squeeze()
-            #Q(s,a)-value
-            qvalue = self.main_q_network(state_batch)
-            action_onehot = torch.eye(self.action_space)[action_batch].cuda()
-            Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
-            td_error = torch.square(Q - TQ)
+            for ready_batch in futures.as_completed(work_in_progresses):
+                indices, weights, minibatch = ready_batch.result()
+                states, actions, rewards, next_states, dones = minibatch
 
-            self.main_q_network.train()
-            loss = torch.mean(weights * td_error)
-            self.optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            utils.clip_grad_norm_(self.main_q_network.parameters(), max_norm=40.0, norm_type=2.0)
-            self.optimizer.step()
+                self.main_q_network.eval()
+                self.target_q_network.eval()
 
-            index_all += index
-            td_error_all += td_error.cpu().detach().numpy().flatten().tolist()
-            loss_list.append(loss.cpu().detach().numpy())
-            self.update_count += 1
+                #TDerror
+                next_qvalue = self.main_q_network(next_states)
+                next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
+                next_action_onehot = torch.eye(self.action_space)[next_action].cuda()
+                target_qvalue = self.target_q_network(next_states)
+                next_maxQ = torch.sum(target_qvalue * next_action_onehot, dim=1, keepdim=True)
+                TQ = (rewards + self.gamma ** self.advanced_step * (1 - dones.int().unsqueeze(1)) * next_maxQ).squeeze()
+                #Q(s,a)-value
+                qvalue = self.main_q_network(states)
+                action_onehot = torch.eye(self.action_space)[actions].cuda()
+                Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
+                td_error = torch.square(Q - TQ)
 
-            if self.update_count % self.target_update == 0:
-                print("===============target update===============")
-                self.update_target_q_network()
+                self.main_q_network.train()
+                loss = torch.mean(weights * td_error)
+                self.optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                utils.clip_grad_norm_(self.main_q_network.parameters(), max_norm=40.0, norm_type=2.0)
+                self.optimizer.step()
+
+                index_all += indices
+                td_error_all += td_error.cpu().detach().numpy().flatten().tolist()
+                loss_list.append(loss.cpu().detach().numpy())
+                self.update_count += 1
+
+                if self.update_count % self.target_update == 0:
+                    print("===============target update===============")
+                    self.update_target_q_network()
         
         #self.scheduler.step()
         current_weight = self.main_q_network.cpu().state_dict()
@@ -126,6 +123,24 @@ class Learner:
         loss_mean = np.array(loss_list).mean()
 
         return current_weight, index_all, td_error_all, loss_mean
+    
+    @staticmethod
+    def prepare_minibatch(compressed_minibatch):
+
+        indices, weights, experiences = compressed_minibatch
+        
+        transitions = [pickle.loads(zlib.decompress(exp)) for exp in experiences]
+            
+        batch = Transition(*zip(*transitions))
+        states = torch.cat(batch.state).cuda()
+        actions = torch.cat(batch.action).cuda()
+        rewards = torch.cat(batch.reward).cuda()
+        next_states = torch.cat(batch.next_state).cuda()
+        dones = torch.cat(batch.done).cuda()
+        weights = torch.from_numpy(np.atleast_2d(weights).astype(np.float32)).clone().cuda()
+
+        return indices, weights, (states, actions, rewards, next_states, dones)
+
 
     def update_target_q_network(self) -> None:
         self.target_q_network.load_state_dict(self.main_q_network.state_dict())

@@ -32,6 +32,7 @@ class Net(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, x):
+
         x = self.conv1(x)
         x = self.relu(x)
         x = self.conv2(x)
@@ -40,13 +41,13 @@ class Net(nn.Module):
         x = self.relu(x)
         x = self.flatten(x)
 
-        x2 = self.fc2(x)
-        x2 = self.relu(x2)
-        adv = self.advantage(x2)
-        
         x1 = self.fc1(x)
         x1 = self.relu(x1)
-        val = self.value(x1).expand(-1, adv.size(1))
+        adv = self.advantage(x1)
+        
+        x2 = self.fc2(x)
+        x2 = self.relu(x2)
+        val = self.value(x2).expand(-1, adv.size(1))
 
         output = val + adv - adv.mean(1, keepdim=True).expand(-1, adv.size(1))
 
