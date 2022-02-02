@@ -5,6 +5,7 @@ class Experiment_Replay:
 
     def __init__(self, capacity: int, td_epsilon: float):
 
+        assert capacity & (capacity - 1) == 0
         self.capacity = capacity
         self.priority = Tree(self.capacity)
         self.memory = [None] * self.capacity

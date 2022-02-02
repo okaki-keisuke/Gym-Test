@@ -1,6 +1,5 @@
 from torch import nn
 import random
-import numpy as np
 import torch
 
 FRAME_WIDTH = 160
@@ -24,10 +23,12 @@ class Net(nn.Module):
         self.flatten = nn.Flatten(1, -1)
         self.fc1 = nn.Linear(64 * 7 * 7, 512)
         nn.init.kaiming_normal_(self.fc1.weight)
-        self.fc2_adv = nn.Linear(512, self.action_space)
-        nn.init.kaiming_normal_(self.fc2_adv.weight)
-        self.fc2_val = nn.Linear(512, 1)  # 価値V側
-        nn.init.kaiming_normal_(self.fc2_val.weight)
+        self.fc2 = nn.Linear(64 * 7 * 7, 512)
+        nn.init.kaiming_normal_(self.fc2.weight)
+        self.advantage = nn.Linear(512, self.action_space)
+        nn.init.kaiming_normal_(self.advantage.weight)
+        self.value = nn.Linear(512, 1)  # 価値V側
+        nn.init.kaiming_normal_(self.value.weight)
         self.relu = nn.ReLU()
 
     def forward(self, x):
@@ -38,10 +39,14 @@ class Net(nn.Module):
         x = self.conv3(x)
         x = self.relu(x)
         x = self.flatten(x)
-        x = self.fc1(x)
-        x = self.relu(x)
-        adv = self.fc2_adv(x)
-        val = self.fc2_val(x).expand(-1, adv.size(1))
+
+        x2 = self.fc2(x)
+        x2 = self.relu(x2)
+        adv = self.advantage(x2)
+        
+        x1 = self.fc1(x)
+        x1 = self.relu(x1)
+        val = self.value(x1).expand(-1, adv.size(1))
 
         output = val + adv - adv.mean(1, keepdim=True).expand(-1, adv.size(1))
 

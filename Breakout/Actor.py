@@ -109,7 +109,7 @@ class Environment:
             self.frames.append(preproccess(next_frame))
             next_state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
             self.episode_reward += reward
-            
+
             if self.lives != info["ale.lives"]:
                 transition = Transition(state, action, next_state, reward, True)
                 self.lives = info["ale.lives"]
@@ -173,7 +173,7 @@ class Tester:
 
     def __init__(self, action_space: int, n_frame: int):
         self.q_network = Net(action_space)
-        self.epsilon = 0.05
+        self.epsilon = 0.01
         self.env_name = ENV
         self.env = gym.make(self.env_name)
         self.n_frame = n_frame

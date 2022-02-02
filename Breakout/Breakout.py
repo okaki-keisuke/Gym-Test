@@ -77,9 +77,9 @@ class Learner:
         loss_list = []
 
         for (index, weight, experiences) in minibatch:
-            #print(len(experiences))
+            
             transitions = [pickle.loads(zlib.decompress(exp)) for exp in experiences]
-            #print(len(transitions))
+            
             batch = Transition(*zip(*transitions))
             state_batch = torch.cat(batch.state).cuda()
             action_batch = torch.cat(batch.action).cuda()
@@ -117,6 +117,7 @@ class Learner:
             self.update_count += 1
 
             if self.update_count % self.target_update == 0:
+                print("===============target update===============")
                 self.update_target_q_network()
         
         #self.scheduler.step()
@@ -170,8 +171,8 @@ def main(num_envs: int) -> None:
         writer = SummaryWriter(log_dir="./logs2/run_{}".format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")))
         writer.add_scalar(f"Replay_Memory", len(replay_memory), num_update)   
     
-    minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
-    wip_learner = learner.update.remote(minibatch)
+    first_minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
+    wip_learner = learner.update.remote(first_minibatch)
     minibatch = [replay_memory.sample(batch_size=args.batch) for _ in range(args.num_minibatch)]
     wip_tester = tester.test_play.remote(current_weights, num_update)
 
@@ -183,11 +184,11 @@ def main(num_envs: int) -> None:
     with tqdm(total=args.update) as pbar:
         while num_update < args.update:  
 
-            actor_cycle += 1
             finished_env, wip_env = ray.wait(wip_env, num_returns=1)
             td_error, transition, pid = ray.get(finished_env[0])
             replay_memory.push(td_error, transition)
             wip_env.extend([envs[pid].rollout.remote(current_weights)])
+            actor_cycle += 1
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
 
