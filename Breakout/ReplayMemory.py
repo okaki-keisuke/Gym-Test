@@ -42,10 +42,9 @@ class Experiment_Replay:
         samples_index = [self.priority.sample() for _ in range(batch_size)]
         #weight
         weights = []
-        current_size = len(self.memory)
         for idx in samples_index:
             prob = self.priority[idx] / self.priority.sum()
-            weight = (prob * current_size) ** (-self.beta)
+            weight = (prob * len(self.memory)) ** (-self.beta)
             weights.append(weight)
         weights = np.array(weights) / max(weights)
         #sample

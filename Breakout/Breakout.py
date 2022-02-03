@@ -18,6 +18,7 @@ from torch.nn import parameter, utils
 from ReplayMemory import Experiment_Replay
 from Actor import Environment, Transition, Tester
 from model import Net
+from utils import huber_loss
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -82,6 +83,7 @@ class Learner:
             work_in_progresses = [executor.submit(self.prepare_minibatch, compressed) for compressed in minibatchs]
 
             for ready_batch in futures.as_completed(work_in_progresses):
+
                 indices, weights, minibatch = ready_batch.result()
                 states, actions, rewards, next_states, dones = minibatch
 
@@ -89,16 +91,19 @@ class Learner:
                 self.target_q_network.eval()
 
                 #TDerror
-                next_qvalue = self.main_q_network(next_states)
-                next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
-                next_action_onehot = torch.eye(self.action_space)[next_action].cuda()
-                target_qvalue = self.target_q_network(next_states)
-                next_maxQ = torch.sum(target_qvalue * next_action_onehot, dim=1, keepdim=True)
-                TQ = (rewards + self.gamma ** self.advanced_step * (1 - dones.int().unsqueeze(1)) * next_maxQ).squeeze()
+                with torch.no_grad():
+                    next_qvalue = self.main_q_network(next_states)
+                    next_action = torch.argmax(next_qvalue, dim=1)# argmaxQ
+                    next_action_onehot = torch.eye(self.action_space)[next_action].cuda()
+                    target_qvalue = self.target_q_network(next_states)
+                    next_maxQ = torch.sum(target_qvalue * next_action_onehot, dim=1, keepdim=True)
+                    TQ = (rewards + self.gamma ** self.advanced_step * (1 - dones.int().unsqueeze(1)) * next_maxQ).squeeze()
+
                 #Q(s,a)-value
                 qvalue = self.main_q_network(states)
                 action_onehot = torch.eye(self.action_space)[actions].cuda()
                 Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
+                #td_loss = huber_loss(Q, TQ)
                 td_error = torch.square(Q - TQ)
 
                 self.main_q_network.train()
@@ -193,8 +198,9 @@ def main(num_envs: int) -> None:
 
     sum = actor_cycle
     print('-'*80)
-    print(f"Test Start : {num_update//args.interval} | Number of Updates : {num_update} | Number of Push : {actor_cycle}")
+    print(f"Test Start : {num_update//args.interval} | Number of Updates : {num_update} | Number of Push : {sum}")
     print('-'*80)
+    sum = 0
     
     with tqdm(total=args.update) as pbar:
         while num_update < args.update:  
@@ -207,7 +213,7 @@ def main(num_envs: int) -> None:
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
 
-            if finished_learner and actor_cycle >= 2000:
+            if finished_learner: #and actor_cycle >= 200:
                 current_weights, index, td_error, loss_mean = ray.get(finished_learner[0])
                 if args.save and num_update % 100 == 0: 
                     torch.save(current_weights, f'{model_path}/model_step_{num_update//args.interval:03}.pth')
@@ -223,6 +229,7 @@ def main(num_envs: int) -> None:
                 pbar.update(1)
                 num_update += 1
                 sum += actor_cycle
+                actor_cycle = 0
 
                #test is faster than interval
                 if num_update % args.interval == 0:
@@ -235,9 +242,9 @@ def main(num_envs: int) -> None:
                     print(f"Test End   : {num_update//args.interval - 1} | Test Episode : {episode} | Test Score : {test_score}")
                     #Test End↑　Test Start↓
                     wip_tester = tester.test_play.remote(current_weights, num_update)
-                    print(f"Test Start : {num_update//args.interval} | Number of Updates : {num_update} | Number of Push : {actor_cycle}")
+                    print(f"Test Start : {num_update//args.interval} | Number of Updates : {num_update} | Number of Push : {sum}")
                     print('-'*80)
-                    actor_cycle = 0
+                    sum =  0
     
     ray.get(wip_env)
     test_score,episode, step = ray.get(wip_tester)

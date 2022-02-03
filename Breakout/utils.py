@@ -1,11 +1,22 @@
 import torch
-import torch
-import torchvision      
-from torchvision import transforms
 import numpy as np
-from model import FRAME_HEIGHT, FRAME_WIDTH, INPUT_HEIGHT, INPUT_WIDTH
+from model import INPUT_HEIGHT, INPUT_WIDTH
 from PIL import Image
 import random
+import time
+
+class Timer:
+
+    def __init__(self, name):
+        self.name = name
+
+    def __enter__(self):
+        self.start = time.time()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        fin = time.time() - self.start
+        print(self.name, fin)
+
 
 class Tree:
     #初期設定
@@ -64,4 +75,26 @@ def preproccess(state: np) ->  np:
 
     return state_np.astype(np.float32)
 
+def huber_loss(target_q, q, d=1.0):
+    """
+    See https://github.com/tensorflow/tensorflow/blob/v2.4.1/tensorflow/python/keras/losses.py#L1098-L1162
+    """
+    td_error = target_q - q
+    is_smaller_than_d = torch.abs(td_error) < d
+    squared_loss = 0.5 * torch.square(td_error)
+    linear_loss = 0.5 * d ** 2 + d * (torch.abs(td_error) - d)
+    loss = torch.where(is_smaller_than_d, squared_loss, linear_loss)
+    return loss
         
+if __name__ == "__main__":
+    sumtree = Tree(capacity=4)
+    sumtree[0] = 4
+    sumtree[1] = 1
+    sumtree[2] = 2
+    sumtree[3] = 3
+    samples = [sumtree.sample() for _ in range(1000)]
+
+    print(samples.count(0))
+    print(samples.count(1))
+    print(samples.count(2))
+    print(samples.count(3))

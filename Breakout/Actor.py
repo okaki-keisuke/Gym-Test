@@ -4,7 +4,7 @@ import ray
 import gym
 from collections import deque, namedtuple
 from model import Net
-from utils import preproccess
+from utils import preproccess, huber_loss
 import numpy as np
 from dataclasses import dataclass
 import pickle
@@ -83,7 +83,7 @@ class Environment:
         self.n_frame = n_frame
         self.frames = deque(maxlen=self.n_frame)
         self.advanced_step = advanced_step
-        self.local_buffer = Local_Buffer(advanced_step=self.advanced_step, gamma=self.gamma, reward_clip=False)
+        self.local_buffer = Local_Buffer(advanced_step=self.advanced_step, gamma=self.gamma, reward_clip=True)
         state = preproccess(self.env.reset())
         for _ in range(self.n_frame):
             self.frames.append(state)
@@ -115,6 +115,7 @@ class Environment:
                 self.lives = info["ale.lives"]
             else:
                 transition = Transition(state, action, next_state, reward, done)
+            
             self.local_buffer.push(transition)
 
             if done:
@@ -123,19 +124,16 @@ class Environment:
             
 
         buffer = self.local_buffer.pull()
-
-        td_error, transitions = self.init_prior(buffer)
-
-        experiences = [zlib.compress(pickle.dumps(exp)) for exp in transitions]
+        td_error, experiences = self.init_prior(buffer)
 
         return td_error, experiences, self.pid
     
-    def init_prior(self, transition: list) -> list:
+    def init_prior(self, transitions: list) -> list:
 
         self.q_network.eval()
         with torch.no_grad():
             
-            batch = Transition(*zip(*transition))
+            batch = Transition(*zip(*transitions))
             state = torch.cat(batch.state)
             action = torch.cat(batch.action)
             next_state = torch.cat(batch.next_state)
@@ -150,9 +148,12 @@ class Environment:
             next_action_onehot = torch.eye(self.action_space)[next_action]
             next_maxQ = torch.sum(next_qvalue * next_action_onehot, dim=1, keepdim=True)
             TQ = (reward + self.gamma ** self.advanced_step * (1 - done.int().unsqueeze(1)) * next_maxQ).squeeze()
+            #td_errors = huber_loss(Q, TQ).detach().numpy().flatten()
             td_errors = torch.square(Q - TQ).detach().numpy().flatten()
+        
+        experiences = [zlib.compress(pickle.dumps(exp)) for exp in transitions]
 
-        return td_errors, transition
+        return td_errors, experiences
     
     def get_action_space(self) -> int:
         
@@ -184,19 +185,19 @@ class Tester:
         state = preproccess(self.env.reset())
         for _ in range(self.n_frame):
             self.frames.append(state)
-        state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
         total_reward = 0
         episode = 0
         done = False
         while not done:
+            
+            state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
             action = self.q_network.get_action(state=state, epsilon=self.epsilon).item()
             new_frame, reward, done, _ = self.env.step(action)
+            self.frames.append(preproccess(new_frame))
             total_reward += reward
             episode += 1
-            if episode > 1000 and total_reward < 10:
+            if episode >= 1000 and total_reward < 10:
                 break
-            self.frames.append(preproccess(new_frame))
-            state = torch.FloatTensor(np.stack(self.frames, axis=0)[np.newaxis, ...])
         
         return total_reward, episode, step
 
