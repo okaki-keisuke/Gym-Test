@@ -207,7 +207,7 @@ def main(num_envs: int) -> None:
 
             finished_learner, _ = ray.wait([wip_learner], timeout=0)
 
-            if finished_learner:
+            if finished_learner and actor_cycle >= 200:
                 current_weights, index, td_error, loss_mean = ray.get(finished_learner[0])
                 if args.save and num_update % 100 == 0: 
                     torch.save(current_weights, f'{model_path}/model_step_{num_update//args.interval:03}.pth')

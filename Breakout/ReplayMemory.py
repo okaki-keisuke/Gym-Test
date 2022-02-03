@@ -6,7 +6,7 @@ class Experiment_Replay:
     def __init__(self, capacity: int, td_epsilon: float):
 
         assert capacity & (capacity - 1) == 0
-        
+
         self.capacity = capacity
         self.priority = Tree(self.capacity)
         self.memory = [None] * self.capacity
@@ -35,7 +35,7 @@ class Experiment_Replay:
 
         for idx, td_error in zip(sampled_index, td_errors):
             priority = (abs(td_error) + self.td_epsilon) ** self.alpha
-            self.priority[idx] = priority ** self.alpha
+            self.priority[idx] = priority
 
     def sample(self, batch_size: int) -> list:
         #index

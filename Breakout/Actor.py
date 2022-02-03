@@ -150,7 +150,7 @@ class Environment:
             next_action_onehot = torch.eye(self.action_space)[next_action]
             next_maxQ = torch.sum(next_qvalue * next_action_onehot, dim=1, keepdim=True)
             TQ = (reward + self.gamma ** self.advanced_step * (1 - done.int().unsqueeze(1)) * next_maxQ).squeeze()
-            td_errors = (Q - TQ).detach().numpy().flatten()
+            td_errors = torch.square(Q - TQ).detach().numpy().flatten()
 
         return td_errors, transition
     
