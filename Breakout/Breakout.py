@@ -103,7 +103,7 @@ class Learner:
                 qvalue = self.main_q_network(states)
                 action_onehot = torch.eye(self.action_space)[actions].cuda()
                 Q = torch.sum(qvalue * action_onehot, dim=1, keepdim=True).squeeze()
-                #td_loss = huber_loss(Q, TQ)
+                #td_error = huber_loss(Q, TQ)
                 td_error = torch.square(Q - TQ)
 
                 self.main_q_network.train()

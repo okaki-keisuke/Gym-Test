@@ -75,11 +75,11 @@ def preproccess(state: np) ->  np:
 
     return state_np.astype(np.float32)
 
-def huber_loss(target_q, q, d=1.0):
+def huber_loss(q, target_q, d=1.0):
     """
     See https://github.com/tensorflow/tensorflow/blob/v2.4.1/tensorflow/python/keras/losses.py#L1098-L1162
     """
-    td_error = target_q - q
+    td_error = q - target_q
     is_smaller_than_d = torch.abs(td_error) < d
     squared_loss = 0.5 * torch.square(td_error)
     linear_loss = 0.5 * d ** 2 + d * (torch.abs(td_error) - d)
