@@ -11,14 +11,14 @@ import warnings
 from tqdm import tqdm
 import collections
 
-model_path = "/home/mukai/params/run_Ape-X_Breakout_2022-01-24_17-23"
+model_path = "/home/mukai/params/run_Ape-X_Breakout_2022-02-04_19-36"
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
 
 parser = argparse.ArgumentParser(description="Test parameter")
 parser.add_argument("--random", action="store_true", help="action randam select")
-parser.add_argument("--model" , type=str, default="280", help="model number")
+parser.add_argument("--model" , type=str, default="480", help="model number")
 args = parser.parse_args()
 
 env = gym.make(ENV)
@@ -49,7 +49,7 @@ if __name__=="__main__":
     score_model = []
     score_random = []
     frames = collections.deque(maxlen=4)
-    for episode in tqdm(range(100)):
+    for episode in tqdm(range(10)):
         for type in ["random", "model"]:
             total_reward = 0
             episode = 0
@@ -59,11 +59,11 @@ if __name__=="__main__":
             state = torch.FloatTensor(np.stack(frames, axis=0)[np.newaxis, ...]).cuda()
             done = False
             while not done:
-                #env.render()
+                env.render()
                 action = decide_action(state) if type == "model" else env.action_space.sample()
-                next_state, reward, done, _ = env.step(action)
+                next_state, reward, done, info = env.step(action)
                 total_reward += reward
-                if done or episode > 1000:
+                if done or info["ale.lives"] != 5:
                     if type == "random":
                         score_random.append(total_reward)
                     elif type == "model":
@@ -76,7 +76,7 @@ if __name__=="__main__":
                 state = torch.FloatTensor(np.stack(frames, axis=0)[np.newaxis, ...]).cuda()
                 episode += 1
 
-    #env.close()
+    env.close()
     plt.figure(figsize=(10,6))
     plt.boxplot((score_random, score_model))
     plt.xlabel("policy")
