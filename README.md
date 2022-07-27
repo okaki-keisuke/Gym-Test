@@ -51,6 +51,10 @@ or
 python ddpg.py
 ```
 
+## 注意
+モデルの保存先は変えないといけないはずなのでよさげなところ指定してほしい。
+PPOの実装は無理やりpytorchに直した感じだからいろいろ変えてみてほしい。もう少しうまいやり方がありそう。
 
+## 参考文献
 [1]:https://horomary.hatenablog.com/entry/2021/03/02/235512
 [2]:https://horomary.hatenablog.com/entry/2020/10/22/234207
