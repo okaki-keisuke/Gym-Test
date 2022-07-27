@@ -11,7 +11,7 @@
 * Pendulum-v1 ([PPO][2]・DDPG)
 
 ##バージョンの確認
-> gym : 0.24.1 
+> gym : 0.24.1   
 > pytorch : 1.11.0+cu113 (もちろんcuda 11.3)
 > ray : 1.13.0
 > numpy : 1.20.3
