@@ -6,7 +6,7 @@
 
 
 実装したゲームとアルゴリズム
-* CartPole-v0　(Ape-X DQN)[1]
+* CartPole-v0　(Ape-X DQN)[めんだこさん][1]
 * BreakoutDeterministic-v4 (Ape-X DQN)
 * Pendulum-v1 (PPO・DDPG)
 
