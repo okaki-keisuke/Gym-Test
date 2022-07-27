@@ -56,9 +56,9 @@ python ddpg.py
 PPOの実装は無理やりpytorchに直した感じだからいろいろ変えてみてほしい。もう少しうまいやり方がありそう。
 
 ## 参考文献
-[Distributed Prioritized Experience Replay][3]
-[Proximal policy optimization algorithms][4]
-[Deterministic Policy Gradient Algorithms][5]
+[Distributed Prioritized Experience Replay][3]  
+[Proximal policy optimization algorithms][4]  
+[Deterministic Policy Gradient Algorithms][5]  
 
 [1]:https://horomary.hatenablog.com/entry/2021/03/02/235512
 [2]:https://horomary.hatenablog.com/entry/2020/10/22/234207
