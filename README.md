@@ -36,10 +36,21 @@
 > n_frame : stateで使う直近の画像の数(default: 4)    
 
 ## 実行方法
+### CartPole
+```
+python Cartpole.py --graph --save
+```
+### Breakout
+```
+python Breakout.py --graph --save
+```
+### Pendulum
+```
+python ppo.py
+or
+python ddpg.py
+```
 
-```
-python Breakout.py 
-```
 
 [1]:https://horomary.hatenablog.com/entry/2021/03/02/235512
 [2]:https://horomary.hatenablog.com/entry/2020/10/22/234207
