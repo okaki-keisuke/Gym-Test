@@ -1,8 +1,13 @@
 # Gym-Test
 
+実装したゲーム
+* CartPole
+* BreakoutDeterministic-v4
+* Pendulum-v1
+
 Ape-X DQNを使って簡単なOpenGymゲームをやってみた  
 
-BreakoutとCartPole  
+BreakoutとCartPole
 
 python Breakout.py とかでできんじゃないか。  
 
