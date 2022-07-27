@@ -22,19 +22,20 @@
 > save : modelを保存するか(default: False)  
 > gamma : 報酬の割引率(default: 0.99)  
 > batch : バッチサイズ(default: 512)  
-> capacity : リプレイメモリーのサイズ　→　2の累乗なのはApe-Xの優先順序を完全2分木で保存しているから(default: 2 ** 21)  
-> epsilon : 探索率(default: 0.5) →　$\epsilon^{1+\frac{i}{N-1}\alpha}$  
-> eps_alpha : 探索率(default: 7)  
-> advanced  
-> td_epsilon  
-> interval  
-> update  
-> target_update  
-> min_replay  
-> local_cycle  
-> num_minibatch  
-n_frame  
+> capacity : リプレイメモリーのサイズ(default: 2 ** 21)　→　2の累乗なのはApe-Xの優先順序を完全2分木で保存しているから  
+> epsilon : 探索率(default: 0.5) → $\epsilon^{1+\frac{i}{N-1}\alpha}$の$\epsilon$  
+> eps_alpha : 探索率(default: 7) → $\epsilon^{1+\frac{i}{N-1}\alpha}$の$\alpha$  
+> advanced : advance stepの数(default: 3)  
+> td_epsilon : メモリに優先順序を付ける時のバイアス(default: 0.001)  
+> interval : テストの間隔(default: 10)  
+> update : 1updatesの回数(default: 5000 updates)　→　1updates = 16 minibatch upate = 16 update  
+> target_update : target Networkの更新頻度(default: 2400 update)  
+> min_replay : 学習を始める時のリプレイメモリーの値(default: 50000)  
+> local_cycle : Actorが画像をリプレイメモリーに投げる時のデータ数(default: 100)  
+> num_minibatch : 1updatesで更新するminibatchの数(default: 16)  
+> n_frame : stateで使う直近の画像の数(default: 4)    
 
+## 実行方法
 python Breakout.py とかでできんじゃないか。  
 
 バージョンとか諸々忘れた。
