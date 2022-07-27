@@ -1,16 +1,16 @@
 # Gym-Test
 
-##前置き
+## 前置き
 自作環境で行う前にOpenAI Gymで試しただけなのでコードが汚いです笑  
 何か間違いがあれば教えてください。。。  
 参考に（ほぼコピペ）したのはめんだこさんのサイト。違いはtensorflowをpytrochに書きなおしてるくらい。
 
-##実装したゲームとアルゴリズム
+## 実装したゲームとアルゴリズム
 * CartPole-v0　([Ape-X DQN][1])
 * BreakoutDeterministic-v4 (Ape-X DQN)
 * Pendulum-v1 ([PPO][2]・DDPG)
 
-##バージョンの確認
+## バージョンの確認
 > gym : 0.24.1   
 > pytorch : 1.11.0+cu113 (もちろんcuda 11.3)  
 > ray : 1.13.0  
@@ -36,9 +36,10 @@
 > n_frame : stateで使う直近の画像の数(default: 4)    
 
 ## 実行方法
-python Breakout.py とかでできんじゃないか。  
 
-バージョンとか諸々忘れた。
+```
+python Breakout.py 
+```
 
 [1]:https://horomary.hatenablog.com/entry/2021/03/02/235512
 [2]:https://horomary.hatenablog.com/entry/2020/10/22/234207
