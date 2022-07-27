@@ -64,4 +64,4 @@ PPOの実装は無理やりpytorchに直した感じだからいろいろ変え�
 [2]:https://horomary.hatenablog.com/entry/2020/10/22/234207
 [3]:https://arxiv.org/abs/1803.00933
 [4]:https://arxiv.org/abs/1707.06347
-[5]]:http://proceedings.mlr.press/v32/silver14.html
+[5]:http://proceedings.mlr.press/v32/silver14.html
