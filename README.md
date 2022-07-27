@@ -23,7 +23,7 @@
 > gamma : 報酬の割引率(default: 0.99)  
 > batch : バッチサイズ(default: 512)  
 > capacity : リプレイメモリーのサイズ　→　2の累乗なのはApe-Xの優先順序を完全2分木で保存しているから(default: 2 ** 21)  
-> epsilon : 探索率(default: 0.5) →　$\epsilon^{1+i/(N-1)\alpha}$  
+> epsilon : 探索率(default: 0.5) →　$\epsilon^{1+\frac{i}{N-1}\alpha}$  
 > eps_alpha : 探索率(default: 7)  
 > advanced  
 > td_epsilon  
