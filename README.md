@@ -28,7 +28,7 @@
 * advanced : advance stepの数　(default: 3)  
 * td_epsilon : メモリに優先順序を付ける時のバイアス　(default: 0.001)  
 * interval : テストの間隔　(default: 10 updates)  
-* update : 1updatesの回数　(default: 5000 updates)　→　1updates = 16 minibatch upate = 16 update  
+* update : 1updatesの回数　(default: 5000 updates)　→　1updates = 16 minibatch update = 16 update  
 * target_update : target Networkの更新頻度　(default: 2400 update)  
 * min_replay : 学習を始める時のリプレイメモリーの値　(default: 50000)  
 * local_cycle : Actorが画像をリプレイメモリーに投げる時のデータ数　(default: 100)  
