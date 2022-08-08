@@ -22,7 +22,7 @@
 * save : modelを保存するか　(default: False)  
 * gamma : 報酬の割引率　(default: 0.99)  
 * batch : バッチサイズ　(default: 512)  
-* capacity : リプレイメモリーのサイズ　(default: $2^21$)　→　2の累乗なのはApe-Xの優先順序を完全2分木で保存しているから  
+* capacity : リプレイメモリーのサイズ　(default: $2^{21}$)　→　2の累乗なのはApe-Xの優先順序を完全2分木で保存しているから  
 * epsilon : 探索率　(default: 0.5) → $\epsilon^{1+\frac{i}{N-1}\alpha}\text{の}\epsilon$  
 * eps_alpha : 探索率　(default: 7) → $\epsilon^{1+\frac{i}{N-1}\alpha}\text{の}\alpha$  
 * advanced : advance stepの数　(default: 3)  
