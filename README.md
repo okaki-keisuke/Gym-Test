@@ -46,10 +46,6 @@ or
 python ddpg.py
 ```
 
-## 注意
-* モデルの保存先は変えないといけないはずなのでよさげなところ指定してほしい。  
-* PPOの実装は無理やりpytorchに直した感じだからいろいろ変えてみてほしい。もう少しうまいやり方がありそう。
-
 ## 参考文献
 [Distributed Prioritized Experience Replay][3]  
 [Proximal policy optimization algorithms][4]  
