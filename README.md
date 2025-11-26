@@ -1,10 +1,5 @@
 # Gym-Test
 
-## 前置き
-自作環境で行う前にOpenAI Gymで試しただけなのでコードが汚いです笑  
-何か間違いがあれば教えてください。。。  
-参考に（ほぼコピペ）したのはめんだこさんのサイト。違いはtensorflowをpytrochに書きなおしてるくらい。
-
 ## 実装したゲームとアルゴリズム
 * CartPole-v0　([Ape-X DQN][1])
 * BreakoutDeterministic-v4 (Ape-X DQN)
